@@ -1936,7 +1936,7 @@ class _ModificaPreventivoScreenState
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
               notificheOk
                   ? 'Preventivo modificato, PDF rigenerato e scadenze programmate.'

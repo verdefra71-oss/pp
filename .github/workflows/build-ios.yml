@@ -43,13 +43,9 @@ jobs:
         working-directory: ${{ env.APP_DIR }}
         shell: bash
         env:
-          IOS_BUNDLE_IDENTIFIER: ${{ secrets.IOS_BUNDLE_IDENTIFIER }}
+          IOS_BUNDLE_IDENTIFIER: com.lenaif.preventivi
         run: |
           set -e
-          if [ -z "$IOS_BUNDLE_IDENTIFIER" ]; then
-            echo "Manca il secret IOS_BUNDLE_IDENTIFIER" >&2
-            exit 1
-          fi
           flutter create --platforms=ios --project-name preventivi_app .
           python3 - <<'PY'
           import os
@@ -134,7 +130,7 @@ jobs:
       - name: Validate signing identity and profile
         working-directory: ${{ env.APP_DIR }}
         env:
-          IOS_BUNDLE_IDENTIFIER: ${{ secrets.IOS_BUNDLE_IDENTIFIER }}
+          IOS_BUNDLE_IDENTIFIER: com.lenaif.preventivi
         run: |
           set -e
           security find-identity -v -p codesigning
@@ -148,7 +144,7 @@ jobs:
       - name: Create ExportOptions.plist
         working-directory: ${{ env.APP_DIR }}
         env:
-          IOS_BUNDLE_IDENTIFIER: ${{ secrets.IOS_BUNDLE_IDENTIFIER }}
+          IOS_BUNDLE_IDENTIFIER: com.lenaif.preventivi
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         shell: bash
         run: |

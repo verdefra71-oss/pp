@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,10 +13,14 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:share_plus/share_plus.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await NotificationService().init();
+  await DatabaseHelper.instance.createAutomaticBackup();
   runApp(const PreventiviApp());
 }
 
@@ -136,10 +141,12 @@ CREATE TABLE rate (
     required String nome,
     required double prezzo,
   }) async {
-    return (await database).insert('prodotti', {
+    final id = await (await database).insert('prodotti', {
       'nome': nome,
       'prezzo': prezzo,
     });
+    await autoBackup();
+    return id;
   }
 
   Future<int> updateProdotto({
@@ -147,20 +154,24 @@ CREATE TABLE rate (
     required String nome,
     required double prezzo,
   }) async {
-    return (await database).update(
+    final result = await (await database).update(
       'prodotti',
       {'nome': nome, 'prezzo': prezzo},
       where: 'id = ?',
       whereArgs: [id],
     );
+    await autoBackup();
+    return result;
   }
 
   Future<int> deleteProdotto(int id) async {
-    return (await database).delete(
+    final result = await (await database).delete(
       'prodotti',
       where: 'id = ?',
       whereArgs: [id],
     );
+    await autoBackup();
+    return result;
   }
 
   Future<int> insertCliente({
@@ -169,12 +180,14 @@ CREATE TABLE rate (
     String telefono = '',
     String indirizzo = '',
   }) async {
-    return (await database).insert('clienti', {
+    final id = await (await database).insert('clienti', {
       'nome': nome,
       'email': email,
       'telefono': telefono,
       'indirizzo': indirizzo,
     });
+    await autoBackup();
+    return id;
   }
 
   Future<int> updateCliente({
@@ -184,7 +197,7 @@ CREATE TABLE rate (
     String telefono = '',
     String indirizzo = '',
   }) async {
-    return (await database).update(
+    final result = await (await database).update(
       'clienti',
       {
         'nome': nome,
@@ -195,14 +208,18 @@ CREATE TABLE rate (
       where: 'id = ?',
       whereArgs: [id],
     );
+    await autoBackup();
+    return result;
   }
 
   Future<int> deleteCliente(int id) async {
-    return (await database).delete(
+    final result = await (await database).delete(
       'clienti',
       where: 'id = ?',
       whereArgs: [id],
     );
+    await autoBackup();
+    return result;
   }
 
   Future<String> prossimoNumeroPreventivo() async {
@@ -220,7 +237,7 @@ CREATE TABLE rate (
     required List<Map<String, dynamic>> articoli,
     required double ivaPercent,
   }) async {
-    return (await database).insert('preventivi', {
+    final id = await (await database).insert('preventivi', {
       'numero': numero,
       'data': DateTime.now().toIso8601String(),
       'cliente': cliente,
@@ -229,6 +246,8 @@ CREATE TABLE rate (
       'articoli': jsonEncode(articoli),
       'iva_percent': ivaPercent,
     });
+    await autoBackup();
+    return id;
   }
 
   Future<int> updatePreventivo({
@@ -239,7 +258,7 @@ CREATE TABLE rate (
     required List<Map<String, dynamic>> articoli,
     required double ivaPercent,
   }) async {
-    return (await database).update(
+    final result = await (await database).update(
       'preventivi',
       {
         'cliente': cliente,
@@ -251,6 +270,8 @@ CREATE TABLE rate (
       where: 'id = ?',
       whereArgs: [id],
     );
+    await autoBackup();
+    return result;
   }
 
   Future<void> insertRata({
@@ -266,9 +287,82 @@ CREATE TABLE rate (
       'data_scadenza': dataScadenza.toIso8601String(),
       'pagata': 0,
     });
+    await autoBackup();
   }
-}
 
+
+
+  Future<Map<String, dynamic>> _backupData() async {
+    final db = await database;
+    return {
+      'backupVersion': 1,
+      'app': 'Gestione Preventivi',
+      'createdAt': DateTime.now().toIso8601String(),
+      'clienti': await db.query('clienti'),
+      'prodotti': await db.query('prodotti'),
+      'preventivi': await db.query('preventivi'),
+      'rate': await db.query('rate'),
+    };
+  }
+
+  Future<File> createAutomaticBackup() async {
+    final dir = await getApplicationDocumentsDirectory();
+    final backupDir = Directory(p.join(dir.path, 'backup'));
+    if (!await backupDir.exists()) await backupDir.create(recursive: true);
+    final file = File(p.join(backupDir.path, 'preventivi_auto_backup.json'));
+    await file.writeAsString(jsonEncode(await _backupData()), flush: true);
+    return file;
+  }
+
+  Future<File> exportBackup() async {
+    final dir = await getApplicationDocumentsDirectory();
+    final exports = Directory(p.join(dir.path, 'backup_export'));
+    if (!await exports.exists()) await exports.create(recursive: true);
+    final stamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+    final file = File(p.join(exports.path, 'Preventivi_backup_$stamp.json'));
+    await file.writeAsString(jsonEncode(await _backupData()), flush: true);
+    return file;
+  }
+
+  Future<void> importBackup(File file) async {
+    final content = await file.readAsString();
+    final decoded = jsonDecode(content);
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException('Backup non valido.');
+    }
+    final clienti = List<Map<String, dynamic>>.from(
+      (decoded['clienti'] as List? ?? []).map((e) => Map<String, dynamic>.from(e)),
+    );
+    final prodotti = List<Map<String, dynamic>>.from(
+      (decoded['prodotti'] as List? ?? []).map((e) => Map<String, dynamic>.from(e)),
+    );
+    final preventivi = List<Map<String, dynamic>>.from(
+      (decoded['preventivi'] as List? ?? []).map((e) => Map<String, dynamic>.from(e)),
+    );
+    final rate = List<Map<String, dynamic>>.from(
+      (decoded['rate'] as List? ?? []).map((e) => Map<String, dynamic>.from(e)),
+    );
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('rate');
+      await txn.delete('preventivi');
+      await txn.delete('prodotti');
+      await txn.delete('clienti');
+      for (final row in clienti) await txn.insert('clienti', row);
+      for (final row in prodotti) await txn.insert('prodotti', row);
+      for (final row in preventivi) await txn.insert('preventivi', row);
+      for (final row in rate) await txn.insert('rate', row);
+    });
+    await createAutomaticBackup();
+  }
+
+  Future<void> autoBackup() async {
+    try {
+      await createAutomaticBackup();
+    } catch (_) {}
+  }
+
+}
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
 
@@ -733,6 +827,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'Rate e scadenze',
               'Controlla le rate programmate',
               () => apri(const RateScreen()),
+            ),
+            _menuTile(
+              Icons.backup_outlined,
+              'Backup e dati',
+              'Esporta, importa e gestisci il backup',
+              () => apri(const BackupScreen()),
             ),
             _menuTile(
               Icons.notifications_active_outlined,
@@ -2838,6 +2938,137 @@ class _ProdottiScreenState extends State<ProdottiScreen> {
   }
 }
 
+
+
+class BackupScreen extends StatefulWidget {
+  const BackupScreen({super.key});
+
+  @override
+  State<BackupScreen> createState() => _BackupScreenState();
+}
+
+class _BackupScreenState extends State<BackupScreen> {
+  bool busy = false;
+  String? lastMessage;
+
+  Future<void> _esporta() async {
+    setState(() => busy = true);
+    try {
+      final file = await DatabaseHelper.instance.exportBackup();
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        subject: 'Backup Preventivi',
+        text: 'Backup clienti, servizi e preventivi.',
+      );
+      if (mounted) setState(() => lastMessage = 'Backup esportato correttamente.');
+    } catch (e) {
+      if (mounted) setState(() => lastMessage = 'Errore esportazione: $e');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _importa() async {
+    setState(() => busy = true);
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+      );
+      if (result == null || result.files.single.path == null) {
+        setState(() => busy = false);
+        return;
+      }
+      if (!mounted) return;
+      final conferma = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Importa backup'),
+          content: const Text(
+            'L’importazione sostituirà i dati attuali di clienti, servizi, preventivi e rate. Continuare?',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('ANNULLA')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('IMPORTA')),
+          ],
+        ),
+      );
+      if (conferma != true) return;
+      await DatabaseHelper.instance.importBackup(File(result.files.single.path!));
+      if (mounted) setState(() => lastMessage = 'Backup importato correttamente.');
+    } catch (e) {
+      if (mounted) setState(() => lastMessage = 'Backup non valido: $e');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _creaAutomatico() async {
+    setState(() => busy = true);
+    try {
+      final file = await DatabaseHelper.instance.createAutomaticBackup();
+      if (mounted) setState(() => lastMessage = 'Backup automatico aggiornato.');
+      debugPrint('Backup automatico: ${file.path}');
+    } catch (e) {
+      if (mounted) setState(() => lastMessage = 'Errore backup automatico: $e');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Backup e dati')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.cloud_done_outlined),
+              title: const Text('Backup automatico'),
+              subtitle: const Text('Viene aggiornato automaticamente dopo ogni modifica dei dati.'),
+              trailing: IconButton(
+                icon: const Icon(Icons.refresh),
+                onPressed: busy ? null : _creaAutomatico,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: busy ? null : _esporta,
+            icon: const Icon(Icons.ios_share),
+            label: const Text('ESPORTA BACKUP'),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: busy ? null : _importa,
+            icon: const Icon(Icons.file_open),
+            label: const Text('IMPORTA BACKUP'),
+          ),
+          if (busy) ...[
+            const SizedBox(height: 20),
+            const Center(child: CircularProgressIndicator()),
+          ],
+          if (lastMessage != null) ...[
+            const SizedBox(height: 20),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Text(lastMessage!),
+              ),
+            ),
+          ],
+          const SizedBox(height: 18),
+          const Text(
+            'Il backup contiene clienti, prodotti/servizi, preventivi e rate. L’importazione sostituisce i dati presenti sul dispositivo.',
+            style: TextStyle(fontSize: 13),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class NotificheScreen extends StatefulWidget {
   const NotificheScreen({super.key});

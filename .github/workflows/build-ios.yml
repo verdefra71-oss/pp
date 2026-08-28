@@ -76,6 +76,62 @@ jobs:
           cd ios
           pod install --repo-update
 
+      - name: 🔐 Controllo Secret iOS
+        shell: bash
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+        run: |
+          set -e
+          MISSING=()
+
+          [ -n "$BUILD_CERTIFICATE_BASE64" ] || MISSING+=("BUILD_CERTIFICATE_BASE64")
+          [ -n "$P12_PASSWORD" ] || MISSING+=("P12_PASSWORD")
+          [ -n "$BUILD_PROVISION_PROFILE_BASE64" ] || MISSING+=("BUILD_PROVISION_PROFILE_BASE64")
+          [ -n "$KEYCHAIN_PASSWORD" ] || MISSING+=("KEYCHAIN_PASSWORD")
+          [ -n "$APPLE_TEAM_ID" ] || MISSING+=("APPLE_TEAM_ID")
+          [ -n "$APP_STORE_CONNECT_KEY_ID" ] || MISSING+=("APP_STORE_CONNECT_KEY_ID")
+          [ -n "$APP_STORE_CONNECT_ISSUER_ID" ] || MISSING+=("APP_STORE_CONNECT_ISSUER_ID")
+          [ -n "$APP_STORE_CONNECT_API_KEY_BASE64" ] || MISSING+=("APP_STORE_CONNECT_API_KEY_BASE64")
+
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo ""
+            echo "=============================================="
+            echo "❌ CONFIGURAZIONE iOS INCOMPLETA"
+            echo "=============================================="
+            echo ""
+            echo "Mancano questi Secret GitHub:"
+            for secret in "${MISSING[@]}"; do
+              echo "❌ $secret"
+            done
+            echo ""
+            echo "Vai in: GitHub → Settings → Secrets and variables → Actions"
+            echo "Aggiungi i Secret mancanti e riavvia il workflow."
+            echo "=============================================="
+
+            {
+              echo "## ❌ Configurazione iOS incompleta"
+              echo ""
+              echo "Mancano questi Secret GitHub:"
+              for secret in "${MISSING[@]}"; do
+                echo "- ❌ \`$secret\`"
+              done
+              echo ""
+              echo "Percorso: GitHub → Settings → Secrets and variables → Actions"
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            exit 1
+          fi
+
+          echo "✅ Tutti i Secret iOS richiesti sono presenti."
+          echo "## ✅ Secret iOS verificati" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Import Apple distribution certificate
         working-directory: ${{ env.APP_DIR }}
         env:

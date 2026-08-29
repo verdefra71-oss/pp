@@ -120,8 +120,12 @@ CREATE TABLE rate (
           );
         }
         if (oldVersion < 4) {
-          await db.execute("ALTER TABLE clienti ADD COLUMN partita_iva TEXT");
-          await db.execute("ALTER TABLE clienti ADD COLUMN codice_fiscale TEXT");
+          await db.execute(
+            "ALTER TABLE clienti ADD COLUMN partita_iva TEXT",
+          );
+          await db.execute(
+            "ALTER TABLE clienti ADD COLUMN codice_fiscale TEXT",
+          );
         }
       },
     );
@@ -129,16 +133,6 @@ CREATE TABLE rate (
 
   Future<List<Map<String, dynamic>>> getClienti() async {
     return (await database).query('clienti', orderBy: 'nome COLLATE NOCASE');
-  }
-
-  Future<Map<String, dynamic>?> getClienteByNome(String nome) async {
-    final rows = await (await database).query(
-      'clienti',
-      where: 'nome = ?',
-      whereArgs: [nome],
-      limit: 1,
-    );
-    return rows.isEmpty ? null : rows.first;
   }
 
   Future<List<Map<String, dynamic>>> getPreventivi() async {
@@ -499,15 +493,25 @@ class PdfGenerator {
     required List<Map<String, dynamic>> articoli,
     required int numeroRate,
     required double ivaPercent,
-    Map<String, dynamic>? clienteData,
   }) async {
     final pdf = pw.Document();
-    clienteData ??= await DatabaseHelper.instance.getClienteByNome(cliente);
     pw.MemoryImage? logo;
+    Map<String, dynamic>? datiCliente;
 
     try {
       final bytes = await rootBundle.load('assets/logo.png');
       logo = pw.MemoryImage(Uint8List.fromList(bytes.buffer.asUint8List()));
+    } catch (_) {}
+
+    // Recupera l'anagrafica completa per stampare tutti i dati del cliente.
+    try {
+      final clienti = await DatabaseHelper.instance.getClienti();
+      final matches = clienti.where(
+        (c) => (c['nome'] ?? '').toString().trim() == cliente.trim(),
+      );
+      if (matches.isNotEmpty) {
+        datiCliente = Map<String, dynamic>.from(matches.first);
+      }
     } catch (_) {}
 
     final imponibile = articoli.fold<double>(
@@ -519,151 +523,183 @@ class PdfGenerator {
     final quota = numeroRate > 0 ? totale / numeroRate : totale;
     final data = DateFormat('dd/MM/yyyy').format(DateTime.now());
 
+    final gold = PdfColor.fromHex('#B8860B');
+    final dark = PdfColor.fromHex('#1E293B');
+
+    String value(String key) => (datiCliente?[key] ?? '').toString().trim();
+
+    final indirizzo = value('indirizzo');
+    final telefono = value('telefono');
+    final email = value('email');
+    final partitaIva = value('partita_iva');
+    final codiceFiscale = value('codice_fiscale');
+
+    final clientRows = <pw.Widget>[
+      pw.Text(
+        'CLIENTE',
+        style: pw.TextStyle(
+          fontSize: 13,
+          fontWeight: pw.FontWeight.bold,
+          color: gold,
+        ),
+      ),
+      pw.SizedBox(height: 5),
+      pw.Text(
+        cliente,
+        style: pw.TextStyle(fontSize: 15, fontWeight: pw.FontWeight.bold),
+      ),
+      if (indirizzo.isNotEmpty) pw.Text('Indirizzo: $indirizzo'),
+      if (telefono.isNotEmpty) pw.Text('Telefono: $telefono'),
+      if (email.isNotEmpty) pw.Text('Email: $email'),
+      if (partitaIva.isNotEmpty) pw.Text('Partita IVA: $partitaIva'),
+      if (codiceFiscale.isNotEmpty) pw.Text('Codice Fiscale: $codiceFiscale'),
+    ];
+
     pdf.addPage(
-      pw.Page(
+      pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(32),
-        build: (_) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                logo != null
-                    ? pw.Image(logo, width: 150)
-                    : pw.Text(
-                        'PREVENTIVI',
-                        style: pw.TextStyle(
-                          fontSize: 18,
-                          fontWeight: pw.FontWeight.bold,
-                        ),
-                      ),
-                pw.Column(
+        margin: const pw.EdgeInsets.fromLTRB(30, 28, 30, 28),
+        build: (_) => [
+          // Logo ingrandito: circa il doppio rispetto alla versione precedente.
+          pw.Row(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              if (logo != null)
+                pw.SizedBox(
+                  width: 285,
+                  height: 190,
+                  child: pw.Image(logo, fit: pw.BoxFit.contain),
+                )
+              else
+                pw.SizedBox(
+                  width: 285,
+                  height: 150,
+                  child: pw.Text(
+                    'BTS',
+                    style: pw.TextStyle(
+                      fontSize: 38,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                ),
+              pw.SizedBox(width: 18),
+              pw.Expanded(
+                child: pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.end,
                   children: [
                     pw.Text(
                       'PREVENTIVO',
                       style: pw.TextStyle(
-                        fontSize: 24,
+                        fontSize: 22,
                         fontWeight: pw.FontWeight.bold,
-                        color: PdfColors.blue900,
+                        color: dark,
                       ),
                     ),
-                    pw.Text('N. $numero'),
-                    pw.Text('Data: $data'),
+                    pw.SizedBox(height: 8),
+                    pw.Divider(color: gold),
+                    pw.SizedBox(height: 8),
+                    pw.Text('N. $numero', style: const pw.TextStyle(fontSize: 11)),
+                    pw.Text('Data: $data', style: const pw.TextStyle(fontSize: 11)),
                   ],
-                ),
-              ],
-            ),
-            pw.SizedBox(height: 25),
-            pw.Container(
-              width: double.infinity,
-              padding: const pw.EdgeInsets.all(12),
-              color: PdfColors.grey100,
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    'CLIENTE',
-                    style: pw.TextStyle(
-                      fontWeight: pw.FontWeight.bold,
-                      color: PdfColors.blue900,
-                    ),
-                  ),
-                  pw.SizedBox(height: 5),
-                  pw.Text(
-                    cliente,
-                    style: pw.TextStyle(
-                      fontSize: 15,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
-                  ),
-                  if ((clienteData?['indirizzo'] ?? '').toString().trim().isNotEmpty)
-                    pw.Text('Indirizzo: ${clienteData!['indirizzo']}'),
-                  if ((clienteData?['telefono'] ?? '').toString().trim().isNotEmpty)
-                    pw.Text('Telefono: ${clienteData!['telefono']}'),
-                  if ((clienteData?['email'] ?? '').toString().trim().isNotEmpty)
-                    pw.Text('Email: ${clienteData!['email']}'),
-                  if ((clienteData?['partita_iva'] ?? '').toString().trim().isNotEmpty)
-                    pw.Text('Partita IVA: ${clienteData!['partita_iva']}'),
-                  if ((clienteData?['codice_fiscale'] ?? '').toString().trim().isNotEmpty)
-                    pw.Text('Codice Fiscale: ${clienteData!['codice_fiscale']}'),
-                ],
-              ),
-            ),
-            pw.SizedBox(height: 20),
-            pw.TableHelper.fromTextArray(
-              headers: ['Prodotto / Servizio', 'Prezzo (€)'],
-              data: articoli
-                  .map(
-                    (x) => [
-                      x['nome'],
-                      '€ ${(x['prezzo'] as num).toDouble().toStringAsFixed(2)}',
-                    ],
-                  )
-                  .toList(),
-              headerStyle: pw.TextStyle(
-                fontWeight: pw.FontWeight.bold,
-                color: PdfColors.white,
-              ),
-              headerDecoration: const pw.BoxDecoration(
-                color: PdfColors.blue900,
-              ),
-              cellAlignments: {
-                0: pw.Alignment.centerLeft,
-                1: pw.Alignment.centerRight,
-              },
-            ),
-            pw.SizedBox(height: 18),
-            pw.Align(
-              alignment: pw.Alignment.centerRight,
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.end,
-                children: [
-                  pw.Text(
-                    'Imponibile: € ${imponibile.toStringAsFixed(2)}',
-                    style: const pw.TextStyle(fontSize: 11),
-                  ),
-                  pw.Text(
-                    'IVA ${ivaPercent.toStringAsFixed(0)}%: € ${iva.toStringAsFixed(2)}',
-                    style: const pw.TextStyle(fontSize: 11),
-                  ),
-                  pw.SizedBox(height: 4),
-                  pw.Text(
-                    'TOTALE: € ${totale.toStringAsFixed(2)}',
-                    style: pw.TextStyle(
-                      fontSize: 17,
-                      fontWeight: pw.FontWeight.bold,
-                      color: PdfColors.blue900,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (numeroRate > 1) ...[
-              pw.SizedBox(height: 25),
-              pw.Container(
-                width: double.infinity,
-                padding: const pw.EdgeInsets.all(12),
-                decoration: pw.BoxDecoration(
-                  border: pw.Border.all(color: PdfColors.blue900),
-                ),
-                child: pw.Text(
-                  '$numeroRate rate mensili da € ${quota.toStringAsFixed(2)} ciascuna.',
                 ),
               ),
             ],
-            pw.Spacer(),
-            pw.Divider(),
-            pw.Text(
-              'Documento generato da Gestione Preventivi.',
-              style: const pw.TextStyle(
-                fontSize: 9,
-                color: PdfColors.grey600,
+          ),
+          pw.SizedBox(height: 12),
+          pw.Container(
+            width: double.infinity,
+            padding: const pw.EdgeInsets.all(12),
+            decoration: pw.BoxDecoration(
+              color: PdfColors.grey100,
+              border: pw.Border.all(color: PdfColors.grey300),
+              borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+            ),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: clientRows,
+            ),
+          ),
+          pw.SizedBox(height: 18),
+          pw.TableHelper.fromTextArray(
+            headers: ['N.', 'Prodotto / Servizio', 'Prezzo (€)'],
+            data: [
+              for (var i = 0; i < articoli.length; i++)
+                [
+                  '${i + 1}',
+                  (articoli[i]['nome'] ?? '').toString(),
+                  '€ ${(articoli[i]['prezzo'] as num).toDouble().toStringAsFixed(2)}',
+                ],
+            ],
+            headerStyle: pw.TextStyle(
+              fontWeight: pw.FontWeight.bold,
+              color: PdfColors.white,
+            ),
+            headerDecoration: pw.BoxDecoration(color: dark),
+            cellAlignments: {
+              0: pw.Alignment.center,
+              1: pw.Alignment.centerLeft,
+              2: pw.Alignment.centerRight,
+            },
+            columnWidths: {
+              0: const pw.FixedColumnWidth(30),
+              1: const pw.FlexColumnWidth(1),
+              2: const pw.FixedColumnWidth(85),
+            },
+          ),
+          pw.SizedBox(height: 18),
+          pw.Container(
+            alignment: pw.Alignment.centerRight,
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.end,
+              children: [
+                pw.Text('Imponibile: € ${imponibile.toStringAsFixed(2)}'),
+                pw.Text(
+                  'IVA ${ivaPercent.toStringAsFixed(0)}%: € ${iva.toStringAsFixed(2)}',
+                ),
+                pw.SizedBox(height: 5),
+                pw.Container(
+                  padding: const pw.EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: pw.BoxDecoration(
+                    color: gold,
+                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(5)),
+                  ),
+                  child: pw.Text(
+                    'TOTALE: € ${totale.toStringAsFixed(2)}',
+                    style: pw.TextStyle(
+                      fontSize: 16,
+                      fontWeight: pw.FontWeight.bold,
+                      color: PdfColors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (numeroRate > 1) ...[
+            pw.SizedBox(height: 18),
+            pw.Container(
+              width: double.infinity,
+              padding: const pw.EdgeInsets.all(12),
+              decoration: pw.BoxDecoration(
+                border: pw.Border.all(color: gold),
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(5)),
+              ),
+              child: pw.Text(
+                '$numeroRate rate mensili da € ${quota.toStringAsFixed(2)} ciascuna.',
               ),
             ),
           ],
-        ),
+          pw.SizedBox(height: 25),
+          pw.Divider(color: gold),
+          pw.SizedBox(height: 6),
+          pw.Text(
+            'Documento generato da Gestione Preventivi.',
+            style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600),
+          ),
+        ],
       ),
     );
 
@@ -941,8 +977,11 @@ Future<String?> selezionaCliente(BuildContext context) async {
       return StatefulBuilder(
         builder: (context, setDialogState) {
           final filtrati = clienti.where((c) {
+            final q = query.toLowerCase();
             final nome = (c['nome'] ?? '').toString().toLowerCase();
-            return nome.contains(query.toLowerCase());
+            final piva = (c['partita_iva'] ?? '').toString().toLowerCase();
+            final cf = (c['codice_fiscale'] ?? '').toString().toLowerCase();
+            return nome.contains(q) || piva.contains(q) || cf.contains(q);
           }).toList();
           return AlertDialog(
             title: const Text('Seleziona cliente'),
@@ -2446,7 +2485,7 @@ class _ClientiScreenState extends State<ClientiScreen> {
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: partitaIva,
-                  textCapitalization: TextCapitalization.characters,
+                  keyboardType: TextInputType.number,
                   decoration: const InputDecoration(
                     labelText: 'Partita IVA',
                     prefixIcon: Icon(Icons.business_outlined),
@@ -2475,8 +2514,8 @@ class _ClientiScreenState extends State<ClientiScreen> {
                           telefono: telefono.text.trim(),
                           email: email.text.trim(),
                           indirizzo: indirizzo.text.trim(),
-                          partitaIva: partitaIva.text.trim().toUpperCase(),
-                          codiceFiscale: codiceFiscale.text.trim().toUpperCase(),
+                          partitaIva: partitaIva.text.trim(),
+                          codiceFiscale: codiceFiscale.text.trim(),
                         );
                       } else {
                         await DatabaseHelper.instance.updateCliente(
@@ -2485,8 +2524,8 @@ class _ClientiScreenState extends State<ClientiScreen> {
                           telefono: telefono.text.trim(),
                           email: email.text.trim(),
                           indirizzo: indirizzo.text.trim(),
-                          partitaIva: partitaIva.text.trim().toUpperCase(),
-                          codiceFiscale: codiceFiscale.text.trim().toUpperCase(),
+                          partitaIva: partitaIva.text.trim(),
+                          codiceFiscale: codiceFiscale.text.trim(),
                         );
                       }
 
@@ -2514,6 +2553,8 @@ class _ClientiScreenState extends State<ClientiScreen> {
     indirizzo.dispose();
     partitaIva.dispose();
     codiceFiscale.dispose();
+    email.dispose();
+    indirizzo.dispose();
   }
 
   Future<void> _elimina(Map<String, dynamic> c) async {
@@ -2546,7 +2587,7 @@ class _ClientiScreenState extends State<ClientiScreen> {
     final q = _search.text.trim().toLowerCase();
 
     final filtrati = clienti.where((c) {
-      return '${c['nome']} ${c['telefono']} ${c['email']} ${c['indirizzo']} ${c['partita_iva']} ${c['codice_fiscale']}'
+      return '${c['nome']} ${c['telefono']} ${c['email']}'
           .toLowerCase()
           .contains(q);
     }).toList();
@@ -2614,11 +2655,7 @@ class _ClientiScreenState extends State<ClientiScreen> {
                       if ((c['email'] ?? '').toString().isNotEmpty)
                         c['email'],
                       if ((c['indirizzo'] ?? '').toString().isNotEmpty)
-                        'Indirizzo: ${c['indirizzo']}',
-                      if ((c['partita_iva'] ?? '').toString().isNotEmpty)
-                        'P. IVA: ${c['partita_iva']}',
-                      if ((c['codice_fiscale'] ?? '').toString().isNotEmpty)
-                        'C.F.: ${c['codice_fiscale']}',
+                        c['indirizzo'],
                     ].join('\n');
 
                     return Card(

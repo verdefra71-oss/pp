@@ -516,10 +516,11 @@ class PdfGenerator {
 
     final imponibile = articoli.fold<double>(
       0,
-      (sum, x) =>
-          sum +
-          (x['prezzo'] as num).toDouble() *
-              ((x['quantita'] as num?)?.toDouble() ?? 1),
+      (sum, x) {
+        final prezzo = (x['prezzo'] as num?)?.toDouble() ?? 0;
+        final quantita = (x['quantita'] as num?)?.toDouble() ?? 1;
+        return sum + (prezzo * quantita);
+      },
     );
     final iva = imponibile * ivaPercent / 100;
     final totale = imponibile + iva;
@@ -630,9 +631,9 @@ class PdfGenerator {
                 [
                   '${i + 1}',
                   (articoli[i]['nome'] ?? '').toString(),
-                  '${((articoli[i]['quantita'] as num?)?.toDouble() ?? 1).toStringAsFixed(2)}',
-                  '€ ${(articoli[i]['prezzo'] as num).toDouble().toStringAsFixed(2)}',
-                  '€ ${((articoli[i]['prezzo'] as num).toDouble() * ((articoli[i]['quantita'] as num?)?.toDouble() ?? 1)).toStringAsFixed(2)}',
+                  ((articoli[i]['quantita'] as num?)?.toDouble() ?? 1).toStringAsFixed(2),
+                  '€ ${((articoli[i]['prezzo'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
+                  '€ ${(((articoli[i]['prezzo'] as num?)?.toDouble() ?? 0) * ((articoli[i]['quantita'] as num?)?.toDouble() ?? 1)).toStringAsFixed(2)}',
                 ],
             ],
             headerStyle: pw.TextStyle(
@@ -651,8 +652,8 @@ class PdfGenerator {
               0: const pw.FixedColumnWidth(25),
               1: const pw.FlexColumnWidth(1),
               2: const pw.FixedColumnWidth(42),
-              3: const pw.FixedColumnWidth(78),
-              4: const pw.FixedColumnWidth(78),
+              3: const pw.FixedColumnWidth(75),
+              4: const pw.FixedColumnWidth(75),
             },
           ),
           pw.SizedBox(height: 18),
@@ -1152,9 +1153,11 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
 
   double get imponibile => articoli.fold<double>(
         0,
-        (sum, x) => sum +
-            ((x['prezzo'] as num).toDouble() *
-                ((x['quantita'] as num?)?.toDouble() ?? 1)),
+        (sum, x) {
+          final prezzo = (x['prezzo'] as num?)?.toDouble() ?? 0;
+          final quantita = (x['quantita'] as num?)?.toDouble() ?? 1;
+          return sum + (prezzo * quantita);
+        },
       );
 
   double get iva => imponibile * ivaPercent / 100;
@@ -1198,11 +1201,7 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
       quantitaController.text.trim().replaceAll(',', '.'),
     );
 
-    if (nome.isEmpty ||
-        prezzo == null ||
-        prezzo < 0 ||
-        quantita == null ||
-        quantita <= 0) {
+    if (nome.isEmpty || prezzo == null || prezzo < 0 || quantita == null || quantita <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Inserisci descrizione, prezzo e quantità validi.'),
@@ -1212,11 +1211,7 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
     }
 
     setState(() {
-      articoli.add({
-        'nome': nome,
-        'prezzo': prezzo,
-        'quantita': quantita,
-      });
+      articoli.add({'nome': nome, 'prezzo': prezzo, 'quantita': quantita});
       prodottoController.clear();
       prezzoController.clear();
       quantitaController.text = '1';
@@ -1426,7 +1421,7 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
                       decimal: true,
                     ),
                     decoration: const InputDecoration(
-                      labelText: 'Prezzo unit. €',
+                      labelText: 'Prezzo unitario €',
                     ),
                   ),
                 ),
@@ -1456,13 +1451,13 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
                   separatorBuilder: (_, __) =>
                       const Divider(height: 1),
                   itemBuilder: (_, i) {
+                    final prezzo = (articoli[i]['prezzo'] as num?)?.toDouble() ?? 0;
+                    final quantita = (articoli[i]['quantita'] as num?)?.toDouble() ?? 1;
+                    final riga = prezzo * quantita;
                     return ListTile(
-                      title: Text(articoli[i]['nome']),
+                      title: Text(articoli[i]['nome'].toString()),
                       subtitle: Text(
-                        'Quantità: ${((articoli[i]['quantita'] as num?)?.toDouble() ?? 1).toStringAsFixed(2)} × '
-                        '€ ${(articoli[i]['prezzo'] as num).toDouble().toStringAsFixed(2)} '
-                        '= € ${(((articoli[i]['prezzo'] as num).toDouble() * '
-                        '((articoli[i]['quantita'] as num?)?.toDouble() ?? 1))).toStringAsFixed(2)}',
+                        'Quantità: ${quantita.toStringAsFixed(2)}  •  Prezzo unitario: € ${prezzo.toStringAsFixed(2)}  •  Totale: € ${riga.toStringAsFixed(2)}',
                       ),
                       trailing: IconButton(
                         icon: const Icon(Icons.delete_outline),
@@ -1502,12 +1497,7 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
                             if (v != null) setState(() => ivaPercent = v);
                           },
                         ),
-                        ivaPercent == 0
-                            ? const Text(
-                                'FUORI CAMPO IVA FCI',
-                                style: TextStyle(fontWeight: FontWeight.bold),
-                              )
-                            : Text('€ ${iva.toStringAsFixed(2)}'),
+                        Text(ivaPercent == 0 ? 'FUORI CAMPO IVA FCI' : '€ ${iva.toStringAsFixed(2)}'),
                       ],
                     ),
                     const Divider(),
@@ -1997,9 +1987,11 @@ class _ModificaPreventivoScreenState
 
   double get imponibile => articoli.fold<double>(
         0,
-        (sum, x) => sum +
-            ((x['prezzo'] as num).toDouble() *
-                ((x['quantita'] as num?)?.toDouble() ?? 1)),
+        (sum, x) {
+          final prezzo = (x['prezzo'] as num?)?.toDouble() ?? 0;
+          final quantita = (x['quantita'] as num?)?.toDouble() ?? 1;
+          return sum + (prezzo * quantita);
+        },
       );
 
   double get iva => imponibile * ivaPercent / 100;
@@ -2047,13 +2039,11 @@ class _ModificaPreventivoScreenState
         return {
           'nome': e['nome'].toString(),
           'prezzo': (e['prezzo'] as num).toDouble(),
-          'quantita': (e['quantita'] as num?)?.toDouble() ?? 1,
         };
       }).toList();
     } catch (_) {
       articoli = [];
     }
-    quantitaController.text = '1';
   }
 
   @override
@@ -2074,11 +2064,7 @@ class _ModificaPreventivoScreenState
       quantitaController.text.trim().replaceAll(',', '.'),
     );
 
-    if (nome.isEmpty ||
-        prezzo == null ||
-        prezzo < 0 ||
-        quantita == null ||
-        quantita <= 0) {
+    if (nome.isEmpty || prezzo == null || prezzo < 0 || quantita == null || quantita <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Inserisci descrizione, prezzo e quantità validi.'),
@@ -2088,11 +2074,7 @@ class _ModificaPreventivoScreenState
     }
 
     setState(() {
-      articoli.add({
-        'nome': nome,
-        'prezzo': prezzo,
-        'quantita': quantita,
-      });
+      articoli.add({'nome': nome, 'prezzo': prezzo, 'quantita': quantita});
       prodottoController.clear();
       prezzoController.clear();
       quantitaController.text = '1';
@@ -2297,7 +2279,7 @@ class _ModificaPreventivoScreenState
                       decimal: true,
                     ),
                     decoration: const InputDecoration(
-                      labelText: 'Prezzo unit. €',
+                      labelText: 'Prezzo unitario €',
                     ),
                   ),
                 ),
@@ -2327,13 +2309,13 @@ class _ModificaPreventivoScreenState
                   separatorBuilder: (_, __) =>
                       const Divider(height: 1),
                   itemBuilder: (_, i) {
+                    final prezzo = (articoli[i]['prezzo'] as num?)?.toDouble() ?? 0;
+                    final quantita = (articoli[i]['quantita'] as num?)?.toDouble() ?? 1;
+                    final riga = prezzo * quantita;
                     return ListTile(
-                      title: Text(articoli[i]['nome']),
+                      title: Text(articoli[i]['nome'].toString()),
                       subtitle: Text(
-                        'Quantità: ${((articoli[i]['quantita'] as num?)?.toDouble() ?? 1).toStringAsFixed(2)} × '
-                        '€ ${(articoli[i]['prezzo'] as num).toDouble().toStringAsFixed(2)} '
-                        '= € ${(((articoli[i]['prezzo'] as num).toDouble() * '
-                        '((articoli[i]['quantita'] as num?)?.toDouble() ?? 1))).toStringAsFixed(2)}',
+                        'Quantità: ${quantita.toStringAsFixed(2)}  •  Prezzo unitario: € ${prezzo.toStringAsFixed(2)}  •  Totale: € ${riga.toStringAsFixed(2)}',
                       ),
                       trailing: IconButton(
                         icon: const Icon(Icons.delete_outline),
@@ -2373,12 +2355,7 @@ class _ModificaPreventivoScreenState
                             if (v != null) setState(() => ivaPercent = v);
                           },
                         ),
-                        ivaPercent == 0
-                            ? const Text(
-                                'FUORI CAMPO IVA FCI',
-                                style: TextStyle(fontWeight: FontWeight.bold),
-                              )
-                            : Text('€ ${iva.toStringAsFixed(2)}'),
+                        Text(ivaPercent == 0 ? 'FUORI CAMPO IVA FCI' : '€ ${iva.toStringAsFixed(2)}'),
                       ],
                     ),
                     const Divider(),

@@ -1,4 +1,4 @@
-name: Build Preventivi Windows Executable
+name: Build Preventivi Windows
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build:
-    name: Build Windows App
+    name: Build Gestione Preventivi for Windows
     runs-on: windows-latest
 
     steps:
@@ -25,6 +25,7 @@ jobs:
           cache: true
 
       - name: Enable Windows support and create platform files
+        shell: pwsh
         run: |
           flutter config --enable-windows-desktop
           flutter create --platforms=windows .
@@ -32,16 +33,45 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Set Windows application icon
+        shell: pwsh
+        run: |
+          $icon = "assets/app_icon.ico"
+          $dest = "windows/runner/resources/app_icon.ico"
+
+          if (!(Test-Path $icon)) {
+            throw "Icona non trovata: $icon"
+          }
+
+          Copy-Item $icon $dest -Force
+
+      - name: Set Windows application name
+        shell: pwsh
+        run: |
+          $rc = "windows/runner/Runner.rc"
+
+          if (Test-Path $rc) {
+            $s = Get-Content $rc -Raw
+            $s = $s -replace 'VALUE "FileDescription", ".*?"', 'VALUE "FileDescription", "Gestione Preventivi - Il Tornitore"'
+            $s = $s -replace 'VALUE "ProductName", ".*?"', 'VALUE "ProductName", "Gestione Preventivi - Il Tornitore"'
+            Set-Content $rc $s -Encoding UTF8
+          }
+
       - name: Build Windows executable
         run: flutter build windows --release
 
-      - name: Compress Release Folder
+      - name: Compress Windows release
+        shell: pwsh
         run: |
-          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath preventivi_windows_x64.zip
+          Compress-Archive `
+            -Path "build/windows/x64/runner/Release/*" `
+            -DestinationPath "Gestione-Preventivi-Il-Tornitore-Windows-x64.zip" `
+            -Force
 
-      - name: Upload Windows Build Artifact
+      - name: Upload Windows build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Preventivi-Windows-Executable
-          path: preventivi_windows_x64.zip
+          name: Gestione-Preventivi-Il-Tornitore-Windows-x64
+          path: Gestione-Preventivi-Il-Tornitore-Windows-x64.zip
           if-no-files-found: error
+          retention-days: 30

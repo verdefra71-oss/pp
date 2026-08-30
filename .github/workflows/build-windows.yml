@@ -1,0 +1,223 @@
+name: Build Preventivi Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    env:
+      # Forza CMake a usare Visual Studio 2022 invece del vecchio VS 2019.
+      CMAKE_GENERATOR: Visual Studio 17 2022
+      CMAKE_GENERATOR_PLATFORM: x64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.38.1"
+          channel: stable
+          cache: true
+
+      - name: Check Flutter and Visual Studio
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          flutter --version
+          flutter doctor -v
+
+          Write-Host "Visual Studio installazioni:"
+          & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
+            -latest `
+            -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath
+
+      - name: Find Flutter project
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $pubspec = Get-ChildItem -Path $env:GITHUB_WORKSPACE -Filter pubspec.yaml -Recurse -File |
+            Where-Object { $_.FullName -notmatch '\\build\\' } |
+            Select-Object -First 1
+
+          if (-not $pubspec) {
+            Write-Error "pubspec.yaml non trovato nel repository."
+          }
+
+          $projectDir = $pubspec.Directory.FullName
+          "APP_DIR=$projectDir" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Progetto Flutter: $projectDir"
+
+      - name: Enable Windows desktop
+        shell: pwsh
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          flutter config --enable-windows-desktop
+
+      - name: Install dependencies
+        shell: pwsh
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          flutter pub get
+
+      - name: Regenerate Windows platform
+        shell: pwsh
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          if (Test-Path "windows") {
+            Remove-Item -Path "windows" -Recurse -Force
+          }
+
+          flutter create --platforms=windows --project-name preventivi_app .
+
+          if (-not (Test-Path "windows\CMakeLists.txt")) {
+            Write-Error "La cartella Windows non è stata generata correttamente."
+          }
+
+          Write-Host "Cartella Windows rigenerata."
+
+      - name: Remove old CMake configuration
+        shell: pwsh
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          # Elimina eventuali cache CMake generate con Visual Studio 2019.
+          Get-ChildItem -Path . -Filter "CMakeCache.txt" -Recurse -Force -ErrorAction SilentlyContinue |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+
+          Get-ChildItem -Path . -Directory -Filter "CMakeFiles" -Recurse -Force -ErrorAction SilentlyContinue |
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+
+          Write-Host "Cache CMake precedenti eliminate."
+
+      - name: Verify Visual Studio 2022
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+
+          if (-not (Test-Path $vswhere)) {
+            Write-Error "vswhere.exe non trovato."
+          }
+
+          $vsPath = & $vswhere `
+            -latest `
+            -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath
+
+          if (-not $vsPath) {
+            Write-Error "Visual Studio con strumenti C++ non trovato."
+          }
+
+          Write-Host "Visual Studio trovato: $vsPath"
+
+          $cmake = Get-Command cmake.exe -ErrorAction Stop
+          Write-Host "CMake: $($cmake.Source)"
+          cmake --version
+
+      - name: Analyze
+        shell: pwsh
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          flutter analyze --no-fatal-infos
+
+      - name: Build Windows Release
+        shell: pwsh
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          flutter clean
+          flutter pub get
+
+          # Imposta esplicitamente Visual Studio 2022 x64.
+          $env:CMAKE_GENERATOR = "Visual Studio 17 2022"
+          $env:CMAKE_GENERATOR_PLATFORM = "x64"
+
+          flutter build windows --release
+
+      - name: Verify Windows build
+        shell: pwsh
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $exe = Get-ChildItem -Path "build\windows" `
+            -Filter "preventivi_app.exe" `
+            -Recurse `
+            -File |
+            Select-Object -First 1
+
+          if (-not $exe) {
+            $exe = Get-ChildItem -Path "build\windows" `
+              -Filter "*.exe" `
+              -Recurse `
+              -File |
+              Select-Object -First 1
+          }
+
+          if (-not $exe) {
+            Write-Error "File EXE non trovato dopo la compilazione."
+          }
+
+          Write-Host "EXE trovato: $($exe.FullName)"
+          "WINDOWS_RELEASE_DIR=$($exe.Directory.FullName)" |
+            Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Create Windows ZIP
+        shell: pwsh
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $releaseDir = "${{ env.WINDOWS_RELEASE_DIR }}"
+          $zip = Join-Path "${{ github.workspace }}" "Preventivi-Windows.zip"
+
+          if (Test-Path $zip) {
+            Remove-Item $zip -Force
+          }
+
+          Compress-Archive `
+            -Path "$releaseDir\*" `
+            -DestinationPath $zip `
+            -Force
+
+          if (-not (Test-Path $zip)) {
+            Write-Error "Impossibile creare Preventivi-Windows.zip."
+          }
+
+          Write-Host "ZIP creato: $zip"
+
+      - name: Upload Windows ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: Preventivi-Windows
+          path: Preventivi-Windows.zip
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Upload Windows Release folder
+        uses: actions/upload-artifact@v4
+        with:
+          name: Preventivi-Windows-Release
+          path: ${{ env.WINDOWS_RELEASE_DIR }}
+          if-no-files-found: error
+          compression-level: 0

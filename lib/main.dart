@@ -1,10 +1,8 @@
 import 'dart:convert';
-import 'dart:typed_data';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:path/path.dart' as p;
 import 'package:pdf/pdf.dart';
@@ -374,10 +372,18 @@ CREATE TABLE rate (
       await txn.delete('preventivi');
       await txn.delete('prodotti');
       await txn.delete('clienti');
-      for (final row in clienti) await txn.insert('clienti', row);
-      for (final row in prodotti) await txn.insert('prodotti', row);
-      for (final row in preventivi) await txn.insert('preventivi', row);
-      for (final row in rate) await txn.insert('rate', row);
+      for (final row in clienti) {
+        await txn.insert('clienti', row);
+      }
+      for (final row in prodotti) {
+        await txn.insert('prodotti', row);
+      }
+      for (final row in preventivi) {
+        await txn.insert('preventivi', row);
+      }
+      for (final row in rate) {
+        await txn.insert('rate', row);
+      }
     });
     await createAutomaticBackup();
   }

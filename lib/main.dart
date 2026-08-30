@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi;
 import 'package:path/path.dart' as p;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -19,6 +20,15 @@ import 'package:share_plus/share_plus.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Android/iOS continuano a usare il driver nativo di sqflite.
+  // Windows usa SQLite via FFI, che è compatibile con lo stesso schema
+  // e con le stesse query dell'app mobile.
+  if (Platform.isWindows) {
+    ffi.sqfliteFfiInit();
+    databaseFactory = ffi.databaseFactoryFfi;
+  }
+
   await NotificationService().init();
   await DatabaseHelper.instance.createAutomaticBackup();
   runApp(const PreventiviApp());
@@ -58,11 +68,22 @@ class DatabaseHelper {
   }
 
   Future<Database> _initDB(String fileName) async {
-    final dbPath = await getDatabasesPath();
+    String dbPath;
+
+    if (Platform.isWindows) {
+      final appDir = await getApplicationDocumentsDirectory();
+      final databaseDir = Directory(p.join(appDir.path, 'databases'));
+      if (!await databaseDir.exists()) {
+        await databaseDir.create(recursive: true);
+      }
+      dbPath = databaseDir.path;
+    } else {
+      dbPath = await getDatabasesPath();
+    }
 
     return openDatabase(
       p.join(dbPath, fileName),
-      version: 5,
+      version: 4,
       onCreate: (db, version) async {
         await db.execute('''
 CREATE TABLE clienti (
@@ -72,8 +93,7 @@ CREATE TABLE clienti (
   telefono TEXT,
   indirizzo TEXT,
   partita_iva TEXT,
-  codice_fiscale TEXT,
-  parrocchia TEXT
+  codice_fiscale TEXT
 )
 ''');
 
@@ -126,11 +146,6 @@ CREATE TABLE rate (
           );
           await db.execute(
             "ALTER TABLE clienti ADD COLUMN codice_fiscale TEXT",
-          );
-        }
-        if (oldVersion < 5) {
-          await db.execute(
-            "ALTER TABLE clienti ADD COLUMN parrocchia TEXT",
           );
         }
       },
@@ -197,7 +212,6 @@ CREATE TABLE rate (
     String indirizzo = '',
     String partitaIva = '',
     String codiceFiscale = '',
-    String parrocchia = '',
   }) async {
     final id = await (await database).insert('clienti', {
       'nome': nome,
@@ -206,7 +220,6 @@ CREATE TABLE rate (
       'indirizzo': indirizzo,
       'partita_iva': partitaIva,
       'codice_fiscale': codiceFiscale,
-      'parrocchia': parrocchia,
     });
     await autoBackup();
     return id;
@@ -220,7 +233,6 @@ CREATE TABLE rate (
     String indirizzo = '',
     String partitaIva = '',
     String codiceFiscale = '',
-    String parrocchia = '',
   }) async {
     final result = await (await database).update(
       'clienti',
@@ -231,7 +243,6 @@ CREATE TABLE rate (
         'indirizzo': indirizzo,
         'partita_iva': partitaIva,
         'codice_fiscale': codiceFiscale,
-        'parrocchia': parrocchia,
       },
       where: 'id = ?',
       whereArgs: [id],
@@ -408,6 +419,11 @@ class NotificationService {
   }
 
   Future<bool> richiediPermessi() async {
+    if (Platform.isWindows) {
+      // Windows non usa il permesso Android per le notifiche locali.
+      return true;
+    }
+
     final android = await _android();
     if (android == null) return false;
 
@@ -417,6 +433,8 @@ class NotificationService {
   }
 
   Future<bool> notificheAbilitate() async {
+    if (Platform.isWindows) return true;
+
     final android = await _android();
     if (android == null) return false;
     return await android.areNotificationsEnabled() ?? false;
@@ -430,6 +448,16 @@ class NotificationService {
 
     const settings = InitializationSettings(
       android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      iOS: DarwinInitializationSettings(
+        requestAlertPermission: true,
+        requestBadgePermission: true,
+        requestSoundPermission: true,
+      ),
+      windows: WindowsInitializationSettings(
+        appName: 'Gestione Preventivi',
+        appUserModelId: 'LeNaif.Preventivi.1_0_0',
+        guid: '2c7c3d5e-5b54-4f22-9b3e-4d2f4b1c8a70',
+      ),
     );
 
     await _notifications.initialize(settings);
@@ -460,6 +488,7 @@ class NotificationService {
             importance: Importance.max,
             priority: Priority.high,
           ),
+          windows: WindowsNotificationDetails(),
         ),
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
@@ -483,6 +512,7 @@ class NotificationService {
               importance: Importance.max,
               priority: Priority.high,
             ),
+            windows: WindowsNotificationDetails(),
           ),
           androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
           uiLocalNotificationDateInterpretation:
@@ -547,7 +577,6 @@ class PdfGenerator {
     final email = value('email');
     final partitaIva = value('partita_iva');
     final codiceFiscale = value('codice_fiscale');
-    final parrocchia = value('parrocchia');
 
     final clientRows = <pw.Widget>[
       pw.Text(
@@ -568,7 +597,6 @@ class PdfGenerator {
       if (email.isNotEmpty) pw.Text('Email: $email'),
       if (partitaIva.isNotEmpty) pw.Text('Partita IVA: $partitaIva'),
       if (codiceFiscale.isNotEmpty) pw.Text('Codice Fiscale: $codiceFiscale'),
-      if (parrocchia.isNotEmpty) pw.Text('Parrocchia: $parrocchia'),
     ];
 
     pdf.addPage(
@@ -1009,8 +1037,7 @@ Future<String?> selezionaCliente(BuildContext context) async {
             final nome = (c['nome'] ?? '').toString().toLowerCase();
             final piva = (c['partita_iva'] ?? '').toString().toLowerCase();
             final cf = (c['codice_fiscale'] ?? '').toString().toLowerCase();
-            final parrocchia = (c['parrocchia'] ?? '').toString().toLowerCase();
-            return nome.contains(q) || piva.contains(q) || cf.contains(q) || parrocchia.contains(q);
+            return nome.contains(q) || piva.contains(q) || cf.contains(q);
           }).toList();
           return AlertDialog(
             title: const Text('Seleziona cliente'),
@@ -1047,7 +1074,6 @@ Future<String?> selezionaCliente(BuildContext context) async {
                                 [
                                   filtrati[i]['telefono'],
                                   filtrati[i]['email'],
-                                  if ((filtrati[i]['parrocchia'] ?? '').toString().isNotEmpty) 'Parrocchia: ${filtrati[i]['parrocchia']}',
                                 ]
                                     .where((x) => (x ?? '').toString().isNotEmpty)
                                     .join(' • '),
@@ -2500,8 +2526,6 @@ class _ClientiScreenState extends State<ClientiScreen> {
         TextEditingController(text: cliente?['partita_iva'] ?? '');
     final codiceFiscale =
         TextEditingController(text: cliente?['codice_fiscale'] ?? '');
-    final parrocchia =
-        TextEditingController(text: cliente?['parrocchia'] ?? '');
     final key = GlobalKey<FormState>();
 
     await showModalBottomSheet(
@@ -2539,15 +2563,6 @@ class _ClientiScreenState extends State<ClientiScreen> {
                   validator: (v) => v == null || v.trim().isEmpty
                       ? 'Inserisci il nome'
                       : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: parrocchia,
-                  textCapitalization: TextCapitalization.words,
-                  decoration: const InputDecoration(
-                    labelText: 'Parrocchia',
-                    prefixIcon: Icon(Icons.church_outlined),
-                  ),
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
@@ -2610,7 +2625,6 @@ class _ClientiScreenState extends State<ClientiScreen> {
                           indirizzo: indirizzo.text.trim(),
                           partitaIva: partitaIva.text.trim(),
                           codiceFiscale: codiceFiscale.text.trim(),
-                          parrocchia: parrocchia.text.trim(),
                         );
                       } else {
                         await DatabaseHelper.instance.updateCliente(
@@ -2621,7 +2635,6 @@ class _ClientiScreenState extends State<ClientiScreen> {
                           indirizzo: indirizzo.text.trim(),
                           partitaIva: partitaIva.text.trim(),
                           codiceFiscale: codiceFiscale.text.trim(),
-                          parrocchia: parrocchia.text.trim(),
                         );
                       }
 
@@ -2649,7 +2662,8 @@ class _ClientiScreenState extends State<ClientiScreen> {
     indirizzo.dispose();
     partitaIva.dispose();
     codiceFiscale.dispose();
-    parrocchia.dispose();
+    email.dispose();
+    indirizzo.dispose();
   }
 
   Future<void> _elimina(Map<String, dynamic> c) async {
@@ -2682,7 +2696,7 @@ class _ClientiScreenState extends State<ClientiScreen> {
     final q = _search.text.trim().toLowerCase();
 
     final filtrati = clienti.where((c) {
-      return '${c['nome']} ${c['telefono']} ${c['email']} ${c['parrocchia'] ?? ''}'
+      return '${c['nome']} ${c['telefono']} ${c['email']}'
           .toLowerCase()
           .contains(q);
     }).toList();
@@ -2751,8 +2765,6 @@ class _ClientiScreenState extends State<ClientiScreen> {
                         c['email'],
                       if ((c['indirizzo'] ?? '').toString().isNotEmpty)
                         c['indirizzo'],
-                      if ((c['parrocchia'] ?? '').toString().isNotEmpty)
-                        'Parrocchia: ${c['parrocchia']}',
                     ].join('\n');
 
                     return Card(

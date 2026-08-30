@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -387,10 +386,18 @@ CREATE TABLE rate (
       await txn.delete('preventivi');
       await txn.delete('prodotti');
       await txn.delete('clienti');
-      for (final row in clienti) await txn.insert('clienti', row);
-      for (final row in prodotti) await txn.insert('prodotti', row);
-      for (final row in preventivi) await txn.insert('preventivi', row);
-      for (final row in rate) await txn.insert('rate', row);
+      for (final row in clienti) {
+        await txn.insert('clienti', row);
+      }
+      for (final row in prodotti) {
+        await txn.insert('prodotti', row);
+      }
+      for (final row in preventivi) {
+        await txn.insert('preventivi', row);
+      }
+      for (final row in rate) {
+        await txn.insert('rate', row);
+      }
     });
     await createAutomaticBackup();
   }
@@ -491,8 +498,6 @@ class NotificationService {
           windows: WindowsNotificationDetails(),
         ),
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
       );
       return true;
     } catch (_) {
@@ -515,8 +520,6 @@ class NotificationService {
             windows: WindowsNotificationDetails(),
           ),
           androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-          uiLocalNotificationDateInterpretation:
-              UILocalNotificationDateInterpretation.absoluteTime,
         );
         return true;
       } catch (_) {

@@ -5,7 +5,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sqflite/sqflite.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:path/path.dart' as p;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -20,12 +19,6 @@ import 'package:share_plus/share_plus.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  }
-
   await NotificationService().init();
   await DatabaseHelper.instance.createAutomaticBackup();
   runApp(const PreventiviApp());
@@ -69,7 +62,7 @@ class DatabaseHelper {
 
     return openDatabase(
       p.join(dbPath, fileName),
-      version: 4,
+      version: 5,
       onCreate: (db, version) async {
         await db.execute('''
 CREATE TABLE clienti (
@@ -79,7 +72,8 @@ CREATE TABLE clienti (
   telefono TEXT,
   indirizzo TEXT,
   partita_iva TEXT,
-  codice_fiscale TEXT
+  codice_fiscale TEXT,
+  parrocchia TEXT
 )
 ''');
 
@@ -127,8 +121,17 @@ CREATE TABLE rate (
           );
         }
         if (oldVersion < 4) {
-          await db.execute("ALTER TABLE clienti ADD COLUMN partita_iva TEXT");
-          await db.execute("ALTER TABLE clienti ADD COLUMN codice_fiscale TEXT");
+          await db.execute(
+            "ALTER TABLE clienti ADD COLUMN partita_iva TEXT",
+          );
+          await db.execute(
+            "ALTER TABLE clienti ADD COLUMN codice_fiscale TEXT",
+          );
+        }
+        if (oldVersion < 5) {
+          await db.execute(
+            "ALTER TABLE clienti ADD COLUMN parrocchia TEXT",
+          );
         }
       },
     );
@@ -194,6 +197,7 @@ CREATE TABLE rate (
     String indirizzo = '',
     String partitaIva = '',
     String codiceFiscale = '',
+    String parrocchia = '',
   }) async {
     final id = await (await database).insert('clienti', {
       'nome': nome,
@@ -202,6 +206,7 @@ CREATE TABLE rate (
       'indirizzo': indirizzo,
       'partita_iva': partitaIva,
       'codice_fiscale': codiceFiscale,
+      'parrocchia': parrocchia,
     });
     await autoBackup();
     return id;
@@ -215,6 +220,7 @@ CREATE TABLE rate (
     String indirizzo = '',
     String partitaIva = '',
     String codiceFiscale = '',
+    String parrocchia = '',
   }) async {
     final result = await (await database).update(
       'clienti',
@@ -225,6 +231,7 @@ CREATE TABLE rate (
         'indirizzo': indirizzo,
         'partita_iva': partitaIva,
         'codice_fiscale': codiceFiscale,
+        'parrocchia': parrocchia,
       },
       where: 'id = ?',
       whereArgs: [id],
@@ -393,14 +400,12 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
 
   Future<AndroidFlutterLocalNotificationsPlugin?> _android() async {
-    if (!Platform.isAndroid) return null;
     return _notifications
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>();
   }
 
   Future<bool> richiediPermessi() async {
-    if (!Platform.isAndroid) return true;
     final android = await _android();
     if (android == null) return false;
 
@@ -410,7 +415,6 @@ class NotificationService {
   }
 
   Future<bool> notificheAbilitate() async {
-    if (!Platform.isAndroid) return true;
     final android = await _android();
     if (android == null) return false;
     return await android.areNotificationsEnabled() ?? false;
@@ -427,9 +431,7 @@ class NotificationService {
     );
 
     await _notifications.initialize(settings);
-    if (Platform.isAndroid) {
-      await richiediPermessi();
-    }
+    await richiediPermessi();
   }
 
   Future<bool> programmaNotificaRata({
@@ -499,7 +501,17 @@ class PdfGenerator {
     required int numeroRate,
     required double ivaPercent,
   }) async {
-    final pdf = pw.Document();
+    // Caricamento dei font Roboto di Google Fonts per il corretto supporto del simbolo Euro €
+    final fontBase = await PdfGoogleFonts.robotoRegular();
+    final fontBold = await PdfGoogleFonts.robotoBold();
+
+    final pdf = pw.Document(
+      theme: pw.ThemeData.withFont(
+        base: fontBase,
+        bold: fontBold,
+      ),
+    );
+
     pw.MemoryImage? logo;
     Map<String, dynamic>? datiCliente;
 
@@ -541,6 +553,7 @@ class PdfGenerator {
     final email = value('email');
     final partitaIva = value('partita_iva');
     final codiceFiscale = value('codice_fiscale');
+    final parrocchia = value('parrocchia');
 
     final clientRows = <pw.Widget>[
       pw.Text(
@@ -561,6 +574,7 @@ class PdfGenerator {
       if (email.isNotEmpty) pw.Text('Email: $email'),
       if (partitaIva.isNotEmpty) pw.Text('Partita IVA: $partitaIva'),
       if (codiceFiscale.isNotEmpty) pw.Text('Codice Fiscale: $codiceFiscale'),
+      if (parrocchia.isNotEmpty) pw.Text('Parrocchia: $parrocchia'),
     ];
 
     pdf.addPage(
@@ -569,7 +583,7 @@ class PdfGenerator {
         margin: const pw.EdgeInsets.fromLTRB(30, 28, 30, 28),
         build: (_) => [
           pw.Row(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            cross: pw.CrossAxisAlignment.start,
             children: [
               if (logo != null)
                 pw.SizedBox(
@@ -592,7 +606,7 @@ class PdfGenerator {
               pw.SizedBox(width: 18),
               pw.Expanded(
                 child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.end,
+                  cross: pw.CrossAxisAlignment.end,
                   children: [
                     pw.Text(
                       'PREVENTIVO',
@@ -836,7 +850,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           backgroundColor: Colors.white,
                           foregroundColor: primary,
                         ),
-                        onPressed: () => apri(const NuovoPreventivoScreen()),
+                        onPressed: () =>
+                            apri(const NuovoPreventivoScreen()),
                         icon: const Icon(Icons.add),
                         label: const Text(
                           'NUOVO PREVENTIVO',
@@ -998,7 +1013,8 @@ Future<String?> selezionaCliente(BuildContext context) async {
             final nome = (c['nome'] ?? '').toString().toLowerCase();
             final piva = (c['partita_iva'] ?? '').toString().toLowerCase();
             final cf = (c['codice_fiscale'] ?? '').toString().toLowerCase();
-            return nome.contains(q) || piva.contains(q) || cf.contains(q);
+            final parrocchia = (c['parrocchia'] ?? '').toString().toLowerCase();
+            return nome.contains(q) || piva.contains(q) || cf.contains(q) || parrocchia.contains(q);
           }).toList();
           return AlertDialog(
             title: const Text('Seleziona cliente'),
@@ -1035,6 +1051,7 @@ Future<String?> selezionaCliente(BuildContext context) async {
                                 [
                                   filtrati[i]['telefono'],
                                   filtrati[i]['email'],
+                                  if ((filtrati[i]['parrocchia'] ?? '').toString().isNotEmpty) 'Parrocchia: ${filtrati[i]['parrocchia']}',
                                 ]
                                     .where((x) => (x ?? '').toString().isNotEmpty)
                                     .join(' • '),
@@ -1308,7 +1325,7 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
             content: Text(
               notificheOk
                   ? 'Preventivo $numero salvato e scadenze programmate.'
-                  : 'Preventivo $numero salvato.',
+                  : 'Preventivo $numero salvato. Abilita le notifiche per ricevere gli avvisi.',
             ),
           ),
         );
@@ -1449,7 +1466,8 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: articoli.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  separatorBuilder: (_, __) =>
+                      const Divider(height: 1),
                   itemBuilder: (_, i) {
                     final prezzo = (articoli[i]['prezzo'] as num?)?.toDouble() ?? 0;
                     final quantita = (articoli[i]['quantita'] as num?)?.toDouble() ?? 1;
@@ -1584,7 +1602,8 @@ class ListaPreventiviScreen extends StatefulWidget {
   const ListaPreventiviScreen({super.key});
 
   @override
-  State<ListaPreventiviScreen> createState() => _ListaPreventiviScreenState();
+  State<ListaPreventiviScreen> createState() =>
+      _ListaPreventiviScreenState();
 }
 
 class _ListaPreventiviScreenState extends State<ListaPreventiviScreen> {
@@ -1922,7 +1941,8 @@ class _ListaPreventiviScreenState extends State<ListaPreventiviScreen> {
                         subtitle: Padding(
                           padding: const EdgeInsets.only(top: 4),
                           child: Text(
-                            '${x['cliente']}\n'
+                            '${x['cliente']}
+'
                             '${DateFormat('dd/MM/yyyy').format(data)} • '
                             '${x['numero_rate']} '
                             '${x['numero_rate'] == 1 ? 'rata' : 'rate'}',
@@ -1970,7 +1990,8 @@ class ModificaPreventivoScreen extends StatefulWidget {
       _ModificaPreventivoScreenState();
 }
 
-class _ModificaPreventivoScreenState extends State<ModificaPreventivoScreen> {
+class _ModificaPreventivoScreenState
+    extends State<ModificaPreventivoScreen> {
   late final TextEditingController clienteController;
 
   final prodottoController = TextEditingController();
@@ -2023,8 +2044,10 @@ class _ModificaPreventivoScreenState extends State<ModificaPreventivoScreen> {
       text: widget.preventivo['cliente'],
     );
 
-    numeroRate = (widget.preventivo['numero_rate'] as num).toInt();
-    ivaPercent = (widget.preventivo['iva_percent'] as num?)?.toDouble() ?? 0;
+    numeroRate =
+        (widget.preventivo['numero_rate'] as num).toInt();
+    ivaPercent =
+        (widget.preventivo['iva_percent'] as num?)?.toDouble() ?? 0;
 
     try {
       final raw = jsonDecode(
@@ -2035,7 +2058,6 @@ class _ModificaPreventivoScreenState extends State<ModificaPreventivoScreen> {
         return {
           'nome': e['nome'].toString(),
           'prezzo': (e['prezzo'] as num).toDouble(),
-          'quantita': (e['quantita'] as num?)?.toDouble() ?? 1,
         };
       }).toList();
     } catch (_) {
@@ -2096,7 +2118,8 @@ class _ModificaPreventivoScreenState extends State<ModificaPreventivoScreen> {
 
     try {
       final db = DatabaseHelper.instance;
-      final preventivoId = (widget.preventivo['id'] as num).toInt();
+      final preventivoId =
+          (widget.preventivo['id'] as num).toInt();
 
       await db.updatePreventivo(
         id: preventivoId,
@@ -2165,7 +2188,7 @@ class _ModificaPreventivoScreenState extends State<ModificaPreventivoScreen> {
             content: Text(
               notificheOk
                   ? 'Preventivo modificato, PDF rigenerato e scadenze programmate.'
-                  : 'Preventivo modificato.',
+                  : 'Preventivo modificato. Abilita le notifiche per ricevere gli avvisi.',
             ),
           ),
         );
@@ -2232,7 +2255,7 @@ class _ModificaPreventivoScreenState extends State<ModificaPreventivoScreen> {
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                onPressed: scegliCliente,
+                onPressed: me => scegliCliente(),
                 icon: const Icon(Icons.people_alt_outlined),
                 label: const Text('SELEZIONA DALL’ANAGRAFICA'),
               ),
@@ -2302,7 +2325,8 @@ class _ModificaPreventivoScreenState extends State<ModificaPreventivoScreen> {
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: articoli.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  separatorBuilder: (_, __) =>
+                      const Divider(height: 1),
                   itemBuilder: (_, i) {
                     final prezzo = (articoli[i]['prezzo'] as num?)?.toDouble() ?? 0;
                     final quantita = (articoli[i]['quantita'] as num?)?.toDouble() ?? 1;
@@ -2472,11 +2496,17 @@ class _ClientiScreenState extends State<ClientiScreen> {
 
   Future<void> _formCliente([Map<String, dynamic>? cliente]) async {
     final nome = TextEditingController(text: cliente?['nome'] ?? '');
-    final telefono = TextEditingController(text: cliente?['telefono'] ?? '');
+    final telefono =
+        TextEditingController(text: cliente?['telefono'] ?? '');
     final email = TextEditingController(text: cliente?['email'] ?? '');
-    final indirizzo = TextEditingController(text: cliente?['indirizzo'] ?? '');
-    final partitaIva = TextEditingController(text: cliente?['partita_iva'] ?? '');
-    final codiceFiscale = TextEditingController(text: cliente?['codice_fiscale'] ?? '');
+    final indirizzo =
+        TextEditingController(text: cliente?['indirizzo'] ?? '');
+    final partitaIva =
+        TextEditingController(text: cliente?['partita_iva'] ?? '');
+    final codiceFiscale =
+        TextEditingController(text: cliente?['codice_fiscale'] ?? '');
+    final parrocchia =
+        TextEditingController(text: cliente?['parrocchia'] ?? '');
     final key = GlobalKey<FormState>();
 
     await showModalBottomSheet(
@@ -2514,6 +2544,15 @@ class _ClientiScreenState extends State<ClientiScreen> {
                   validator: (v) => v == null || v.trim().isEmpty
                       ? 'Inserisci il nome'
                       : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: parrocchia,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(
+                    labelText: 'Parrocchia',
+                    prefixIcon: Icon(Icons.church_outlined),
+                  ),
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
@@ -2576,6 +2615,7 @@ class _ClientiScreenState extends State<ClientiScreen> {
                           indirizzo: indirizzo.text.trim(),
                           partitaIva: partitaIva.text.trim(),
                           codiceFiscale: codiceFiscale.text.trim(),
+                          parrocchia: parrocchia.text.trim(),
                         );
                       } else {
                         await DatabaseHelper.instance.updateCliente(
@@ -2586,6 +2626,7 @@ class _ClientiScreenState extends State<ClientiScreen> {
                           indirizzo: indirizzo.text.trim(),
                           partitaIva: partitaIva.text.trim(),
                           codiceFiscale: codiceFiscale.text.trim(),
+                          parrocchia: parrocchia.text.trim(),
                         );
                       }
 
@@ -2613,6 +2654,7 @@ class _ClientiScreenState extends State<ClientiScreen> {
     indirizzo.dispose();
     partitaIva.dispose();
     codiceFiscale.dispose();
+    parrocchia.dispose();
   }
 
   Future<void> _elimina(Map<String, dynamic> c) async {
@@ -2645,7 +2687,7 @@ class _ClientiScreenState extends State<ClientiScreen> {
     final q = _search.text.trim().toLowerCase();
 
     final filtrati = clienti.where((c) {
-      return '${c['nome']} ${c['telefono']} ${c['email']}'
+      return '${c['nome']} ${c['telefono']} ${c['email']} ${c['parrocchia'] ?? ''}'
           .toLowerCase()
           .contains(q);
     }).toList();
@@ -2714,7 +2756,10 @@ class _ClientiScreenState extends State<ClientiScreen> {
                         c['email'],
                       if ((c['indirizzo'] ?? '').toString().isNotEmpty)
                         c['indirizzo'],
-                    ].join('\n');
+                      if ((c['parrocchia'] ?? '').toString().isNotEmpty)
+                        'Parrocchia: ${c['parrocchia']}',
+                    ].join('
+');
 
                     return Card(
                       margin: const EdgeInsets.only(bottom: 8),
@@ -3296,7 +3341,7 @@ class _NotificheScreenState extends State<NotificheScreen> {
             Text(
               abilitate == true
                   ? 'Le scadenze delle rate possono essere segnalate automaticamente.'
-                  : 'Abilita le notifiche per questa applicazione.',
+                  : 'Per ricevere gli avvisi delle rate, abilita le notifiche per questa app nelle impostazioni di Android.',
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
@@ -3304,6 +3349,12 @@ class _NotificheScreenState extends State<NotificheScreen> {
               onPressed: loading ? null : _abilita,
               icon: const Icon(Icons.notifications_active),
               label: const Text('ABILITA / RICHIEDI PERMESSI'),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Nota: Android può richiedere anche il permesso per gli allarmi esatti. Se viene negato, l’app utilizza comunque il sistema di notifica non esatto quando possibile.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12),
             ),
           ],
         ),
@@ -3342,7 +3393,8 @@ class RateScreen extends StatelessWidget {
           return ListView.separated(
             padding: const EdgeInsets.all(12),
             itemCount: rate.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            separatorBuilder: (_, __) =>
+                const SizedBox(height: 8),
             itemBuilder: (context, index) {
               final x = rate[index];
 
@@ -3356,7 +3408,9 @@ class RateScreen extends StatelessWidget {
                 child: ListTile(
                   leading: CircleAvatar(
                     child: Icon(
-                      pagata ? Icons.check : Icons.schedule,
+                      pagata
+                          ? Icons.check
+                          : Icons.schedule,
                     ),
                   ),
                   title: Text(
@@ -3366,7 +3420,8 @@ class RateScreen extends StatelessWidget {
                     ),
                   ),
                   subtitle: Text(
-                    'Scadenza: ${DateFormat('dd/MM/yyyy').format(data)}',
+                    'Scadenza: '
+                    '${DateFormat('dd/MM/yyyy').format(data)}',
                   ),
                   trailing: Text(
                     '€ ${(x['importo'] as num).toStringAsFixed(2)}',

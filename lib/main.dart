@@ -62,7 +62,7 @@ class DatabaseHelper {
 
     return openDatabase(
       p.join(dbPath, fileName),
-      version: 4,
+      version: 5,
       onCreate: (db, version) async {
         await db.execute('''
 CREATE TABLE clienti (
@@ -72,7 +72,8 @@ CREATE TABLE clienti (
   telefono TEXT,
   indirizzo TEXT,
   partita_iva TEXT,
-  codice_fiscale TEXT
+  codice_fiscale TEXT,
+  parrocchia TEXT
 )
 ''');
 
@@ -93,7 +94,8 @@ CREATE TABLE preventivi (
   totale REAL NOT NULL,
   numero_rate INTEGER NOT NULL,
   articoli TEXT NOT NULL DEFAULT '[]',
-  iva_percent REAL NOT NULL DEFAULT 0
+  iva_percent REAL NOT NULL DEFAULT 0,
+  parrocchia TEXT
 )
 ''');
 
@@ -125,6 +127,14 @@ CREATE TABLE rate (
           );
           await db.execute(
             "ALTER TABLE clienti ADD COLUMN codice_fiscale TEXT",
+          );
+        }
+        if (oldVersion < 5) {
+          await db.execute(
+            "ALTER TABLE clienti ADD COLUMN parrocchia TEXT",
+          );
+          await db.execute(
+            "ALTER TABLE preventivi ADD COLUMN parrocchia TEXT",
           );
         }
       },
@@ -191,6 +201,7 @@ CREATE TABLE rate (
     String indirizzo = '',
     String partitaIva = '',
     String codiceFiscale = '',
+    String parrocchia = '',
   }) async {
     final id = await (await database).insert('clienti', {
       'nome': nome,
@@ -199,6 +210,7 @@ CREATE TABLE rate (
       'indirizzo': indirizzo,
       'partita_iva': partitaIva,
       'codice_fiscale': codiceFiscale,
+      'parrocchia': parrocchia,
     });
     await autoBackup();
     return id;
@@ -212,6 +224,7 @@ CREATE TABLE rate (
     String indirizzo = '',
     String partitaIva = '',
     String codiceFiscale = '',
+    String parrocchia = '',
   }) async {
     final result = await (await database).update(
       'clienti',
@@ -222,6 +235,7 @@ CREATE TABLE rate (
         'indirizzo': indirizzo,
         'partita_iva': partitaIva,
         'codice_fiscale': codiceFiscale,
+        'parrocchia': parrocchia,
       },
       where: 'id = ?',
       whereArgs: [id],
@@ -254,6 +268,7 @@ CREATE TABLE rate (
     required int numeroRate,
     required List<Map<String, dynamic>> articoli,
     required double ivaPercent,
+    String parrocchia = '',
   }) async {
     final id = await (await database).insert('preventivi', {
       'numero': numero,
@@ -263,6 +278,7 @@ CREATE TABLE rate (
       'numero_rate': numeroRate,
       'articoli': jsonEncode(articoli),
       'iva_percent': ivaPercent,
+      'parrocchia': parrocchia,
     });
     await autoBackup();
     return id;
@@ -275,6 +291,7 @@ CREATE TABLE rate (
     required int numeroRate,
     required List<Map<String, dynamic>> articoli,
     required double ivaPercent,
+    String parrocchia = '',
   }) async {
     final result = await (await database).update(
       'preventivi',
@@ -284,6 +301,7 @@ CREATE TABLE rate (
         'numero_rate': numeroRate,
         'articoli': jsonEncode(articoli),
         'iva_percent': ivaPercent,
+        'parrocchia': parrocchia,
       },
       where: 'id = ?',
       whereArgs: [id],
@@ -493,6 +511,7 @@ class PdfGenerator {
     required List<Map<String, dynamic>> articoli,
     required int numeroRate,
     required double ivaPercent,
+    String parrocchia = '',
   }) async {
     final pdf = pw.Document();
     pw.MemoryImage? logo;
@@ -516,11 +535,7 @@ class PdfGenerator {
 
     final imponibile = articoli.fold<double>(
       0,
-      (sum, x) {
-        final prezzo = (x['prezzo'] as num?)?.toDouble() ?? 0;
-        final quantita = (x['quantita'] as num?)?.toDouble() ?? 1;
-        return sum + (prezzo * quantita);
-      },
+      (sum, x) => sum + (x['prezzo'] as num).toDouble(),
     );
     final iva = imponibile * ivaPercent / 100;
     final totale = imponibile + iva;
@@ -537,6 +552,9 @@ class PdfGenerator {
     final email = value('email');
     final partitaIva = value('partita_iva');
     final codiceFiscale = value('codice_fiscale');
+    final parrocchiaCliente = parrocchia.trim().isNotEmpty
+        ? parrocchia.trim()
+        : value('parrocchia');
 
     final clientRows = <pw.Widget>[
       pw.Text(
@@ -557,6 +575,7 @@ class PdfGenerator {
       if (email.isNotEmpty) pw.Text('Email: $email'),
       if (partitaIva.isNotEmpty) pw.Text('Partita IVA: $partitaIva'),
       if (codiceFiscale.isNotEmpty) pw.Text('Codice Fiscale: $codiceFiscale'),
+      if (parrocchiaCliente.isNotEmpty) pw.Text('Parrocchia: $parrocchiaCliente'),
     ];
 
     pdf.addPage(
@@ -625,15 +644,13 @@ class PdfGenerator {
           ),
           pw.SizedBox(height: 18),
           pw.TableHelper.fromTextArray(
-            headers: ['N.', 'Prodotto / Servizio', 'Q.tà', 'Prezzo unit. (€)', 'Totale (€)'],
+            headers: ['N.', 'Prodotto / Servizio', 'Prezzo (€)'],
             data: [
               for (var i = 0; i < articoli.length; i++)
                 [
                   '${i + 1}',
                   (articoli[i]['nome'] ?? '').toString(),
-                  ((articoli[i]['quantita'] as num?)?.toDouble() ?? 1).toStringAsFixed(2),
-                  '€ ${((articoli[i]['prezzo'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
-                  '€ ${(((articoli[i]['prezzo'] as num?)?.toDouble() ?? 0) * ((articoli[i]['quantita'] as num?)?.toDouble() ?? 1)).toStringAsFixed(2)}',
+                  '€ ${(articoli[i]['prezzo'] as num).toDouble().toStringAsFixed(2)}',
                 ],
             ],
             headerStyle: pw.TextStyle(
@@ -644,16 +661,12 @@ class PdfGenerator {
             cellAlignments: {
               0: pw.Alignment.center,
               1: pw.Alignment.centerLeft,
-              2: pw.Alignment.center,
-              3: pw.Alignment.centerRight,
-              4: pw.Alignment.centerRight,
+              2: pw.Alignment.centerRight,
             },
             columnWidths: {
-              0: const pw.FixedColumnWidth(25),
+              0: const pw.FixedColumnWidth(30),
               1: const pw.FlexColumnWidth(1),
-              2: const pw.FixedColumnWidth(42),
-              3: const pw.FixedColumnWidth(75),
-              4: const pw.FixedColumnWidth(75),
+              2: const pw.FixedColumnWidth(85),
             },
           ),
           pw.SizedBox(height: 18),
@@ -663,15 +676,9 @@ class PdfGenerator {
               crossAxisAlignment: pw.CrossAxisAlignment.end,
               children: [
                 pw.Text('Imponibile: € ${imponibile.toStringAsFixed(2)}'),
-                if (ivaPercent == 0)
-                  pw.Text(
-                    'FUORI CAMPO IVA FCI',
-                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-                  )
-                else
-                  pw.Text(
-                    'IVA ${ivaPercent.toStringAsFixed(0)}%: € ${iva.toStringAsFixed(2)}',
-                  ),
+                pw.Text(
+                  'IVA ${ivaPercent.toStringAsFixed(0)}%: € ${iva.toStringAsFixed(2)}',
+                ),
                 pw.SizedBox(height: 5),
                 pw.Container(
                   padding: const pw.EdgeInsets.symmetric(
@@ -1034,6 +1041,8 @@ Future<String?> selezionaCliente(BuildContext context) async {
                                 [
                                   filtrati[i]['telefono'],
                                   filtrati[i]['email'],
+                                  if ((filtrati[i]['parrocchia'] ?? '').toString().isNotEmpty)
+                                    'Parrocchia: ${filtrati[i]['parrocchia']}',
                                 ]
                                     .where((x) => (x ?? '').toString().isNotEmpty)
                                     .join(' • '),
@@ -1141,9 +1150,9 @@ class NuovoPreventivoScreen extends StatefulWidget {
 
 class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
   final clienteController = TextEditingController();
+  final parrocchiaController = TextEditingController();
   final prodottoController = TextEditingController();
   final prezzoController = TextEditingController();
-  final quantitaController = TextEditingController(text: '1');
 
   final List<Map<String, dynamic>> articoli = [];
 
@@ -1153,11 +1162,7 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
 
   double get imponibile => articoli.fold<double>(
         0,
-        (sum, x) {
-          final prezzo = (x['prezzo'] as num?)?.toDouble() ?? 0;
-          final quantita = (x['quantita'] as num?)?.toDouble() ?? 1;
-          return sum + (prezzo * quantita);
-        },
+        (sum, x) => sum + (x['prezzo'] as double),
       );
 
   double get iva => imponibile * ivaPercent / 100;
@@ -1167,7 +1172,20 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
   Future<void> scegliCliente() async {
     final nome = await selezionaCliente(context);
     if (nome != null && mounted) {
-      setState(() => clienteController.text = nome);
+      final clienti = await DatabaseHelper.instance.getClienti();
+      Map<String, dynamic>? selezionato;
+      for (final c in clienti) {
+        if ((c['nome'] ?? '').toString().trim().toLowerCase() ==
+            nome.trim().toLowerCase()) {
+          selezionato = c;
+          break;
+        }
+      }
+      setState(() {
+        clienteController.text = nome;
+        parrocchiaController.text =
+            (selezionato?['parrocchia'] ?? '').toString();
+      });
     }
   }
 
@@ -1178,7 +1196,6 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
         prodottoController.text = prodotto['nome'].toString();
         prezzoController.text =
             (prodotto['prezzo'] as num).toDouble().toStringAsFixed(2);
-        quantitaController.text = '1';
       });
     }
   }
@@ -1186,9 +1203,9 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
   @override
   void dispose() {
     clienteController.dispose();
+    parrocchiaController.dispose();
     prodottoController.dispose();
     prezzoController.dispose();
-    quantitaController.dispose();
     super.dispose();
   }
 
@@ -1197,24 +1214,20 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
     final prezzo = double.tryParse(
       prezzoController.text.trim().replaceAll(',', '.'),
     );
-    final quantita = double.tryParse(
-      quantitaController.text.trim().replaceAll(',', '.'),
-    );
 
-    if (nome.isEmpty || prezzo == null || prezzo < 0 || quantita == null || quantita <= 0) {
+    if (nome.isEmpty || prezzo == null || prezzo < 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Inserisci descrizione, prezzo e quantità validi.'),
+          content: Text('Inserisci descrizione e prezzo validi.'),
         ),
       );
       return;
     }
 
     setState(() {
-      articoli.add({'nome': nome, 'prezzo': prezzo, 'quantita': quantita});
+      articoli.add({'nome': nome, 'prezzo': prezzo});
       prodottoController.clear();
       prezzoController.clear();
-      quantitaController.text = '1';
     });
   }
 
@@ -1245,6 +1258,7 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
         numeroRate: numeroRate,
         articoli: articoli,
         ivaPercent: ivaPercent,
+        parrocchia: parrocchiaController.text.trim(),
       );
 
       final clienti = await db.getClienti();
@@ -1254,7 +1268,10 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
             (c['nome'] as String).toLowerCase() ==
             cliente.toLowerCase(),
       )) {
-        await db.insertCliente(nome: cliente);
+        await db.insertCliente(
+          nome: cliente,
+          parrocchia: parrocchiaController.text.trim(),
+        );
       }
 
       if (numeroRate > 1) {
@@ -1297,6 +1314,7 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
         articoli: articoli,
         numeroRate: numeroRate,
         ivaPercent: ivaPercent,
+        parrocchia: parrocchiaController.text.trim(),
       );
 
       final notificheOk = await NotificationService().notificheAbilitate();
@@ -1375,6 +1393,15 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
               ),
             ),
             const SizedBox(height: 8),
+            TextField(
+              controller: parrocchiaController,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'Parrocchia',
+                prefixIcon: Icon(Icons.church_outlined),
+              ),
+            ),
+            const SizedBox(height: 8),
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
@@ -1404,24 +1431,12 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: TextField(
-                    controller: quantitaController,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration: const InputDecoration(
-                      labelText: 'Quantità',
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
                     controller: prezzoController,
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
                     decoration: const InputDecoration(
-                      labelText: 'Prezzo unitario €',
+                      labelText: 'Prezzo €',
                     ),
                   ),
                 ),
@@ -1451,13 +1466,10 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
                   separatorBuilder: (_, __) =>
                       const Divider(height: 1),
                   itemBuilder: (_, i) {
-                    final prezzo = (articoli[i]['prezzo'] as num?)?.toDouble() ?? 0;
-                    final quantita = (articoli[i]['quantita'] as num?)?.toDouble() ?? 1;
-                    final riga = prezzo * quantita;
                     return ListTile(
-                      title: Text(articoli[i]['nome'].toString()),
+                      title: Text(articoli[i]['nome']),
                       subtitle: Text(
-                        'Quantità: ${quantita.toStringAsFixed(2)}  •  Prezzo unitario: € ${prezzo.toStringAsFixed(2)}  •  Totale: € ${riga.toStringAsFixed(2)}',
+                        '€ ${(articoli[i]['prezzo'] as double).toStringAsFixed(2)}',
                       ),
                       trailing: IconButton(
                         icon: const Icon(Icons.delete_outline),
@@ -1497,7 +1509,7 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
                             if (v != null) setState(() => ivaPercent = v);
                           },
                         ),
-                        Text(ivaPercent == 0 ? 'FUORI CAMPO IVA FCI' : '€ ${iva.toStringAsFixed(2)}'),
+                        Text('€ ${iva.toStringAsFixed(2)}'),
                       ],
                     ),
                     const Divider(),
@@ -1763,6 +1775,7 @@ class _ListaPreventiviScreenState extends State<ListaPreventiviScreen> {
                       articoli: _articoliDaPreventivo(x),
                       numeroRate: x['numero_rate'],
                       ivaPercent: (x['iva_percent'] as num?)?.toDouble() ?? 0,
+                      parrocchia: (x['parrocchia'] ?? '').toString(),
                     );
                   },
                   icon: const Icon(Icons.picture_as_pdf),
@@ -1974,10 +1987,10 @@ class ModificaPreventivoScreen extends StatefulWidget {
 class _ModificaPreventivoScreenState
     extends State<ModificaPreventivoScreen> {
   late final TextEditingController clienteController;
+  late final TextEditingController parrocchiaController;
 
   final prodottoController = TextEditingController();
   final prezzoController = TextEditingController();
-  final quantitaController = TextEditingController(text: '1');
 
   late List<Map<String, dynamic>> articoli;
   late int numeroRate;
@@ -1987,11 +2000,7 @@ class _ModificaPreventivoScreenState
 
   double get imponibile => articoli.fold<double>(
         0,
-        (sum, x) {
-          final prezzo = (x['prezzo'] as num?)?.toDouble() ?? 0;
-          final quantita = (x['quantita'] as num?)?.toDouble() ?? 1;
-          return sum + (prezzo * quantita);
-        },
+        (sum, x) => sum + (x['prezzo'] as double),
       );
 
   double get iva => imponibile * ivaPercent / 100;
@@ -2001,7 +2010,20 @@ class _ModificaPreventivoScreenState
   Future<void> scegliCliente() async {
     final nome = await selezionaCliente(context);
     if (nome != null && mounted) {
-      setState(() => clienteController.text = nome);
+      final clienti = await DatabaseHelper.instance.getClienti();
+      Map<String, dynamic>? selezionato;
+      for (final c in clienti) {
+        if ((c['nome'] ?? '').toString().trim().toLowerCase() ==
+            nome.trim().toLowerCase()) {
+          selezionato = c;
+          break;
+        }
+      }
+      setState(() {
+        clienteController.text = nome;
+        parrocchiaController.text =
+            (selezionato?['parrocchia'] ?? '').toString();
+      });
     }
   }
 
@@ -2012,7 +2034,6 @@ class _ModificaPreventivoScreenState
         prodottoController.text = prodotto['nome'].toString();
         prezzoController.text =
             (prodotto['prezzo'] as num).toDouble().toStringAsFixed(2);
-        quantitaController.text = '1';
       });
     }
   }
@@ -2023,6 +2044,9 @@ class _ModificaPreventivoScreenState
 
     clienteController = TextEditingController(
       text: widget.preventivo['cliente'],
+    );
+    parrocchiaController = TextEditingController(
+      text: widget.preventivo['parrocchia'] ?? '',
     );
 
     numeroRate =
@@ -2049,9 +2073,9 @@ class _ModificaPreventivoScreenState
   @override
   void dispose() {
     clienteController.dispose();
+    parrocchiaController.dispose();
     prodottoController.dispose();
     prezzoController.dispose();
-    quantitaController.dispose();
     super.dispose();
   }
 
@@ -2060,24 +2084,20 @@ class _ModificaPreventivoScreenState
     final prezzo = double.tryParse(
       prezzoController.text.trim().replaceAll(',', '.'),
     );
-    final quantita = double.tryParse(
-      quantitaController.text.trim().replaceAll(',', '.'),
-    );
 
-    if (nome.isEmpty || prezzo == null || prezzo < 0 || quantita == null || quantita <= 0) {
+    if (nome.isEmpty || prezzo == null || prezzo < 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Inserisci descrizione, prezzo e quantità validi.'),
+          content: Text('Inserisci descrizione e prezzo validi.'),
         ),
       );
       return;
     }
 
     setState(() {
-      articoli.add({'nome': nome, 'prezzo': prezzo, 'quantita': quantita});
+      articoli.add({'nome': nome, 'prezzo': prezzo});
       prodottoController.clear();
       prezzoController.clear();
-      quantitaController.text = '1';
     });
   }
 
@@ -2109,6 +2129,7 @@ class _ModificaPreventivoScreenState
         numeroRate: numeroRate,
         articoli: articoli,
         ivaPercent: ivaPercent,
+        parrocchia: parrocchiaController.text.trim(),
       );
 
       final database = await db.database;
@@ -2159,6 +2180,7 @@ class _ModificaPreventivoScreenState
         articoli: articoli,
         numeroRate: numeroRate,
         ivaPercent: ivaPercent,
+        parrocchia: parrocchiaController.text.trim(),
       );
 
       final notificheOk = await NotificationService().notificheAbilitate();
@@ -2233,6 +2255,15 @@ class _ModificaPreventivoScreenState
               ),
             ),
             const SizedBox(height: 8),
+            TextField(
+              controller: parrocchiaController,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'Parrocchia',
+                prefixIcon: Icon(Icons.church_outlined),
+              ),
+            ),
+            const SizedBox(height: 8),
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
@@ -2262,24 +2293,12 @@ class _ModificaPreventivoScreenState
                 const SizedBox(width: 8),
                 Expanded(
                   child: TextField(
-                    controller: quantitaController,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration: const InputDecoration(
-                      labelText: 'Quantità',
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
                     controller: prezzoController,
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
                     decoration: const InputDecoration(
-                      labelText: 'Prezzo unitario €',
+                      labelText: 'Prezzo €',
                     ),
                   ),
                 ),
@@ -2309,13 +2328,10 @@ class _ModificaPreventivoScreenState
                   separatorBuilder: (_, __) =>
                       const Divider(height: 1),
                   itemBuilder: (_, i) {
-                    final prezzo = (articoli[i]['prezzo'] as num?)?.toDouble() ?? 0;
-                    final quantita = (articoli[i]['quantita'] as num?)?.toDouble() ?? 1;
-                    final riga = prezzo * quantita;
                     return ListTile(
-                      title: Text(articoli[i]['nome'].toString()),
+                      title: Text(articoli[i]['nome']),
                       subtitle: Text(
-                        'Quantità: ${quantita.toStringAsFixed(2)}  •  Prezzo unitario: € ${prezzo.toStringAsFixed(2)}  •  Totale: € ${riga.toStringAsFixed(2)}',
+                        '€ ${(articoli[i]['prezzo'] as double).toStringAsFixed(2)}',
                       ),
                       trailing: IconButton(
                         icon: const Icon(Icons.delete_outline),
@@ -2355,7 +2371,7 @@ class _ModificaPreventivoScreenState
                             if (v != null) setState(() => ivaPercent = v);
                           },
                         ),
-                        Text(ivaPercent == 0 ? 'FUORI CAMPO IVA FCI' : '€ ${iva.toStringAsFixed(2)}'),
+                        Text('€ ${iva.toStringAsFixed(2)}'),
                       ],
                     ),
                     const Divider(),
@@ -2486,6 +2502,8 @@ class _ClientiScreenState extends State<ClientiScreen> {
         TextEditingController(text: cliente?['partita_iva'] ?? '');
     final codiceFiscale =
         TextEditingController(text: cliente?['codice_fiscale'] ?? '');
+    final parrocchia =
+        TextEditingController(text: cliente?['parrocchia'] ?? '');
     final key = GlobalKey<FormState>();
 
     await showModalBottomSheet(
@@ -2569,6 +2587,15 @@ class _ClientiScreenState extends State<ClientiScreen> {
                     prefixIcon: Icon(Icons.badge_outlined),
                   ),
                 ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: parrocchia,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(
+                    labelText: 'Parrocchia',
+                    prefixIcon: Icon(Icons.church_outlined),
+                  ),
+                ),
                 const SizedBox(height: 20),
                 SizedBox(
                   width: double.infinity,
@@ -2585,6 +2612,7 @@ class _ClientiScreenState extends State<ClientiScreen> {
                           indirizzo: indirizzo.text.trim(),
                           partitaIva: partitaIva.text.trim(),
                           codiceFiscale: codiceFiscale.text.trim(),
+                          parrocchia: parrocchia.text.trim(),
                         );
                       } else {
                         await DatabaseHelper.instance.updateCliente(
@@ -2595,6 +2623,7 @@ class _ClientiScreenState extends State<ClientiScreen> {
                           indirizzo: indirizzo.text.trim(),
                           partitaIva: partitaIva.text.trim(),
                           codiceFiscale: codiceFiscale.text.trim(),
+                          parrocchia: parrocchia.text.trim(),
                         );
                       }
 
@@ -2622,6 +2651,7 @@ class _ClientiScreenState extends State<ClientiScreen> {
     indirizzo.dispose();
     partitaIva.dispose();
     codiceFiscale.dispose();
+    parrocchia.dispose();
     email.dispose();
     indirizzo.dispose();
   }
@@ -2656,7 +2686,7 @@ class _ClientiScreenState extends State<ClientiScreen> {
     final q = _search.text.trim().toLowerCase();
 
     final filtrati = clienti.where((c) {
-      return '${c['nome']} ${c['telefono']} ${c['email']}'
+      return '${c['nome']} ${c['telefono']} ${c['email']} ${c['parrocchia'] ?? ''}'
           .toLowerCase()
           .contains(q);
     }).toList();
@@ -2725,6 +2755,8 @@ class _ClientiScreenState extends State<ClientiScreen> {
                         c['email'],
                       if ((c['indirizzo'] ?? '').toString().isNotEmpty)
                         c['indirizzo'],
+                      if ((c['parrocchia'] ?? '').toString().isNotEmpty)
+                        'Parrocchia: ${c['parrocchia']}',
                     ].join('\n');
 
                     return Card(

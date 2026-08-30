@@ -17,21 +17,6 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Find Flutter project
-        shell: bash
-        run: |
-          set -e
-          if [ -f "pubspec.yaml" ]; then
-            APP_DIR="."
-          else
-            APP_DIR="$(find . -name pubspec.yaml -not -path '*/.dart_tool/*' -print -quit | xargs -r dirname)"
-          fi
-          if [ -z "$APP_DIR" ] || [ ! -f "$APP_DIR/pubspec.yaml" ]; then
-            echo "Errore: pubspec.yaml non trovato" >&2
-            exit 1
-          fi
-          echo "APP_DIR=$APP_DIR" >> "$GITHUB_ENV"
-
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -42,16 +27,24 @@ jobs:
       - name: Enable Windows Desktop
         run: flutter config --enable-windows-desktop
 
-      - name: Clean Old Windows Project Files
+      - name: Find Flutter project
+        shell: bash
+        run: |
+          set -e
+          if [ -f "pubspec.yaml" ]; then
+            APP_DIR="."
+          else
+            APP_DIR="$(find . -name pubspec.yaml -not -path '*/.dart_tool/*' -print -quit | xargs -r dirname)"
+          fi
+          echo "APP_DIR=$APP_DIR" >> "$GITHUB_ENV"
+
+      - name: Clean and Re-create Windows Platform
         shell: bash
         working-directory: ${{ env.APP_DIR }}
         run: |
           rm -rf windows
           rm -rf build
-
-      - name: Re-create Windows Project Configuration
-        working-directory: ${{ env.APP_DIR }}
-        run: flutter create --platforms=windows --project-name preventivi_app .
+          flutter create --platforms=windows --project-name preventivi_app .
 
       - name: Install dependencies
         working-directory: ${{ env.APP_DIR }}
@@ -59,7 +52,7 @@ jobs:
 
       - name: Build Windows release
         working-directory: ${{ env.APP_DIR }}
-        run: flutter build windows --release
+        run: flutter build windows --release --extra-gen-args="-G;Visual Studio 17 2022;-A;x64"
 
       - name: Compress Release Output
         shell: pwsh

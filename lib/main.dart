@@ -318,6 +318,8 @@ CREATE TABLE rate (
     await autoBackup();
   }
 
+
+
   Future<Map<String, dynamic>> _backupData() async {
     final db = await database;
     return {
@@ -387,8 +389,8 @@ CREATE TABLE rate (
       await createAutomaticBackup();
     } catch (_) {}
   }
-}
 
+}
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
 
@@ -448,7 +450,7 @@ class NotificationService {
       await _notifications.zonedSchedule(
         id,
         'Rata in scadenza',
-        'Oggi scade la rata di €${importo.toStringAsFixed(2)} per $cliente.',
+        'Oggi scade la rata di EUR ${importo.toStringAsFixed(2)} per $cliente.',
         when,
         const NotificationDetails(
           android: AndroidNotificationDetails(
@@ -465,11 +467,12 @@ class NotificationService {
       );
       return true;
     } catch (_) {
+      // Se l'utente non concede gli allarmi esatti, usa il fallback inexact.
       try {
         await _notifications.zonedSchedule(
           id,
           'Rata in scadenza',
-          'Oggi scade la rata di €${importo.toStringAsFixed(2)} per $cliente.',
+          'Oggi scade la rata di EUR ${importo.toStringAsFixed(2)} per $cliente.',
           when,
           const NotificationDetails(
             android: AndroidNotificationDetails(
@@ -501,17 +504,7 @@ class PdfGenerator {
     required int numeroRate,
     required double ivaPercent,
   }) async {
-    // Caricamento dei font Roboto di Google Fonts per il corretto supporto del simbolo Euro €
-    final fontBase = await PdfGoogleFonts.robotoRegular();
-    final fontBold = await PdfGoogleFonts.robotoBold();
-
-    final pdf = pw.Document(
-      theme: pw.ThemeData.withFont(
-        base: fontBase,
-        bold: fontBold,
-      ),
-    );
-
+    final pdf = pw.Document();
     pw.MemoryImage? logo;
     Map<String, dynamic>? datiCliente;
 
@@ -520,6 +513,7 @@ class PdfGenerator {
       logo = pw.MemoryImage(Uint8List.fromList(bytes.buffer.asUint8List()));
     } catch (_) {}
 
+    // Recupera l'anagrafica completa per stampare tutti i dati del cliente.
     try {
       final clienti = await DatabaseHelper.instance.getClienti();
       final matches = clienti.where(
@@ -582,8 +576,9 @@ class PdfGenerator {
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.fromLTRB(30, 28, 30, 28),
         build: (_) => [
+          // Logo ingrandito: circa il doppio rispetto alla versione precedente.
           pw.Row(
-            cross: pw.CrossAxisAlignment.start,
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
               if (logo != null)
                 pw.SizedBox(
@@ -606,7 +601,7 @@ class PdfGenerator {
               pw.SizedBox(width: 18),
               pw.Expanded(
                 child: pw.Column(
-                  cross: pw.CrossAxisAlignment.end,
+                  crossAxisAlignment: pw.CrossAxisAlignment.end,
                   children: [
                     pw.Text(
                       'PREVENTIVO',
@@ -642,15 +637,15 @@ class PdfGenerator {
           ),
           pw.SizedBox(height: 18),
           pw.TableHelper.fromTextArray(
-            headers: ['N.', 'Prodotto / Servizio', 'Q.tà', 'Prezzo unit. (€)', 'Totale (€)'],
+            headers: ['N.', 'Prodotto / Servizio', 'Q.tà', 'Prezzo unit. (EUR )', 'Totale (EUR )'],
             data: [
               for (var i = 0; i < articoli.length; i++)
                 [
                   '${i + 1}',
                   (articoli[i]['nome'] ?? '').toString(),
                   ((articoli[i]['quantita'] as num?)?.toDouble() ?? 1).toStringAsFixed(2),
-                  '€ ${((articoli[i]['prezzo'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
-                  '€ ${(((articoli[i]['prezzo'] as num?)?.toDouble() ?? 0) * ((articoli[i]['quantita'] as num?)?.toDouble() ?? 1)).toStringAsFixed(2)}',
+                  'EUR ${((articoli[i]['prezzo'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
+                  'EUR ${(((articoli[i]['prezzo'] as num?)?.toDouble() ?? 0) * ((articoli[i]['quantita'] as num?)?.toDouble() ?? 1)).toStringAsFixed(2)}',
                 ],
             ],
             headerStyle: pw.TextStyle(
@@ -679,7 +674,7 @@ class PdfGenerator {
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.end,
               children: [
-                pw.Text('Imponibile: € ${imponibile.toStringAsFixed(2)}'),
+                pw.Text('Imponibile: EUR ${imponibile.toStringAsFixed(2)}'),
                 if (ivaPercent == 0)
                   pw.Text(
                     'FUORI CAMPO IVA FCI',
@@ -687,7 +682,7 @@ class PdfGenerator {
                   )
                 else
                   pw.Text(
-                    'IVA ${ivaPercent.toStringAsFixed(0)}%: € ${iva.toStringAsFixed(2)}',
+                    'IVA ${ivaPercent.toStringAsFixed(0)}%: EUR ${iva.toStringAsFixed(2)}',
                   ),
                 pw.SizedBox(height: 5),
                 pw.Container(
@@ -700,7 +695,7 @@ class PdfGenerator {
                     borderRadius: const pw.BorderRadius.all(pw.Radius.circular(5)),
                   ),
                   child: pw.Text(
-                    'TOTALE: € ${totale.toStringAsFixed(2)}',
+                    'TOTALE: EUR ${totale.toStringAsFixed(2)}',
                     style: pw.TextStyle(
                       fontSize: 16,
                       fontWeight: pw.FontWeight.bold,
@@ -721,7 +716,7 @@ class PdfGenerator {
                 borderRadius: const pw.BorderRadius.all(pw.Radius.circular(5)),
               ),
               child: pw.Text(
-                '$numeroRate rate mensili da € ${quota.toStringAsFixed(2)} ciascuna.',
+                '$numeroRate rate mensili da EUR ${quota.toStringAsFixed(2)} ciascuna.',
               ),
             ),
           ],
@@ -999,6 +994,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 }
 
+
 Future<String?> selezionaCliente(BuildContext context) async {
   final clienti = await DatabaseHelper.instance.getClienti();
   if (!context.mounted) return null;
@@ -1122,7 +1118,7 @@ Future<Map<String, dynamic>?> selezionaProdotto(BuildContext context) async {
                               leading: const Icon(Icons.inventory_2_outlined),
                               title: Text(filtrati[i]['nome']),
                               trailing: Text(
-                                '€ ${(filtrati[i]['prezzo'] as num).toDouble().toStringAsFixed(2)}',
+                                'EUR ${(filtrati[i]['prezzo'] as num).toDouble().toStringAsFixed(2)}',
                                 style: const TextStyle(
                                   fontWeight: FontWeight.bold,
                                 ),
@@ -1358,7 +1354,7 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(label, style: style),
-        Text('€ ${value.toStringAsFixed(2)}', style: style),
+        Text('EUR ${value.toStringAsFixed(2)}', style: style),
       ],
     );
   }
@@ -1439,7 +1435,7 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
                       decimal: true,
                     ),
                     decoration: const InputDecoration(
-                      labelText: 'Prezzo unitario €',
+                      labelText: 'Prezzo unitario EUR ',
                     ),
                   ),
                 ),
@@ -1475,7 +1471,7 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
                     return ListTile(
                       title: Text(articoli[i]['nome'].toString()),
                       subtitle: Text(
-                        'Quantità: ${quantita.toStringAsFixed(2)}  •  Prezzo unitario: € ${prezzo.toStringAsFixed(2)}  •  Totale: € ${riga.toStringAsFixed(2)}',
+                        'Quantità: ${quantita.toStringAsFixed(2)}  •  Prezzo unitario: EUR ${prezzo.toStringAsFixed(2)}  •  Totale: EUR ${riga.toStringAsFixed(2)}',
                       ),
                       trailing: IconButton(
                         icon: const Icon(Icons.delete_outline),
@@ -1515,7 +1511,7 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
                             if (v != null) setState(() => ivaPercent = v);
                           },
                         ),
-                        Text(ivaPercent == 0 ? 'FUORI CAMPO IVA FCI' : '€ ${iva.toStringAsFixed(2)}'),
+                        Text(ivaPercent == 0 ? 'FUORI CAMPO IVA FCI' : 'EUR ${iva.toStringAsFixed(2)}'),
                       ],
                     ),
                     const Divider(),
@@ -1563,7 +1559,7 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
               Padding(
                 padding: const EdgeInsets.only(top: 8),
                 child: Text(
-                  'Rata indicativa: € '
+                  'Rata indicativa: EUR '
                   '${(totale / numeroRate).toStringAsFixed(2)}',
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.primary,
@@ -1728,7 +1724,7 @@ class _ListaPreventiviScreenState extends State<ListaPreventiviScreen> {
               _detailRow(
                 Icons.payments_outlined,
                 'Totale',
-                '€ ${(x['totale'] as num).toStringAsFixed(2)}',
+                'EUR ${(x['totale'] as num).toStringAsFixed(2)}',
               ),
               _detailRow(
                 Icons.event_repeat,
@@ -1941,8 +1937,7 @@ class _ListaPreventiviScreenState extends State<ListaPreventiviScreen> {
                         subtitle: Padding(
                           padding: const EdgeInsets.only(top: 4),
                           child: Text(
-                            '${x['cliente']}
-'
+                            '${x['cliente']}\n'
                             '${DateFormat('dd/MM/yyyy').format(data)} • '
                             '${x['numero_rate']} '
                             '${x['numero_rate'] == 1 ? 'rata' : 'rate'}',
@@ -1954,7 +1949,7 @@ class _ListaPreventiviScreenState extends State<ListaPreventiviScreen> {
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Text(
-                              '€ ${(x['totale'] as num).toStringAsFixed(2)}',
+                              'EUR ${(x['totale'] as num).toStringAsFixed(2)}',
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 16,
@@ -2221,7 +2216,7 @@ class _ModificaPreventivoScreenState
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(label, style: style),
-        Text('€ ${value.toStringAsFixed(2)}', style: style),
+        Text('EUR ${value.toStringAsFixed(2)}', style: style),
       ],
     );
   }
@@ -2255,7 +2250,7 @@ class _ModificaPreventivoScreenState
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                onPressed: me => scegliCliente(),
+                onPressed: scegliCliente,
                 icon: const Icon(Icons.people_alt_outlined),
                 label: const Text('SELEZIONA DALL’ANAGRAFICA'),
               ),
@@ -2298,7 +2293,7 @@ class _ModificaPreventivoScreenState
                       decimal: true,
                     ),
                     decoration: const InputDecoration(
-                      labelText: 'Prezzo unitario €',
+                      labelText: 'Prezzo unitario EUR ',
                     ),
                   ),
                 ),
@@ -2334,7 +2329,7 @@ class _ModificaPreventivoScreenState
                     return ListTile(
                       title: Text(articoli[i]['nome'].toString()),
                       subtitle: Text(
-                        'Quantità: ${quantita.toStringAsFixed(2)}  •  Prezzo unitario: € ${prezzo.toStringAsFixed(2)}  •  Totale: € ${riga.toStringAsFixed(2)}',
+                        'Quantità: ${quantita.toStringAsFixed(2)}  •  Prezzo unitario: EUR ${prezzo.toStringAsFixed(2)}  •  Totale: EUR ${riga.toStringAsFixed(2)}',
                       ),
                       trailing: IconButton(
                         icon: const Icon(Icons.delete_outline),
@@ -2374,7 +2369,7 @@ class _ModificaPreventivoScreenState
                             if (v != null) setState(() => ivaPercent = v);
                           },
                         ),
-                        Text(ivaPercent == 0 ? 'FUORI CAMPO IVA FCI' : '€ ${iva.toStringAsFixed(2)}'),
+                        Text(ivaPercent == 0 ? 'FUORI CAMPO IVA FCI' : 'EUR ${iva.toStringAsFixed(2)}'),
                       ],
                     ),
                     const Divider(),
@@ -2422,7 +2417,7 @@ class _ModificaPreventivoScreenState
               Padding(
                 padding: const EdgeInsets.only(top: 8),
                 child: Text(
-                  'Rata indicativa: € '
+                  'Rata indicativa: EUR '
                   '${(totale / numeroRate).toStringAsFixed(2)}',
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.primary,
@@ -2758,8 +2753,7 @@ class _ClientiScreenState extends State<ClientiScreen> {
                         c['indirizzo'],
                       if ((c['parrocchia'] ?? '').toString().isNotEmpty)
                         'Parrocchia: ${c['parrocchia']}',
-                    ].join('
-');
+                    ].join('\n');
 
                     return Card(
                       margin: const EdgeInsets.only(bottom: 8),
@@ -2907,7 +2901,7 @@ class _ProdottiScreenState extends State<ProdottiScreen> {
                     decimal: true,
                   ),
                   decoration: const InputDecoration(
-                    labelText: 'Prezzo €',
+                    labelText: 'Prezzo EUR ',
                     prefixIcon: Icon(Icons.euro),
                   ),
                   validator: (v) {
@@ -3103,7 +3097,7 @@ class _ProdottiScreenState extends State<ProdottiScreen> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              '€ ${(prodotto['prezzo'] as num).toStringAsFixed(2)}',
+                              'EUR ${(prodotto['prezzo'] as num).toStringAsFixed(2)}',
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 16,
@@ -3145,6 +3139,8 @@ class _ProdottiScreenState extends State<ProdottiScreen> {
     );
   }
 }
+
+
 
 class BackupScreen extends StatefulWidget {
   const BackupScreen({super.key});
@@ -3424,7 +3420,7 @@ class RateScreen extends StatelessWidget {
                     '${DateFormat('dd/MM/yyyy').format(data)}',
                   ),
                   trailing: Text(
-                    '€ ${(x['importo'] as num).toStringAsFixed(2)}',
+                    'EUR ${(x['importo'] as num).toStringAsFixed(2)}',
                   ),
                 ),
               );

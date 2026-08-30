@@ -1,0 +1,47 @@
+name: Build Preventivi Windows Executable
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Windows App
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.3'
+          channel: stable
+          cache: true
+
+      - name: Enable Windows support and create platform files
+        run: |
+          flutter config --enable-windows-desktop
+          flutter create --platforms=windows .
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Windows executable
+        run: flutter build windows --release
+
+      - name: Compress Release Folder
+        run: |
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath preventivi_windows_x64.zip
+
+      - name: Upload Windows Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Preventivi-Windows-Executable
+          path: preventivi_windows_x64.zip
+          if-no-files-found: error

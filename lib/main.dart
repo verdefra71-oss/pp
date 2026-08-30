@@ -1,10 +1,11 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sqflite/sqflite.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi;
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:path/path.dart' as p;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -20,12 +21,10 @@ import 'package:share_plus/share_plus.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Android/iOS continuano a usare il driver nativo di sqflite.
-  // Windows usa SQLite via FFI, che è compatibile con lo stesso schema
-  // e con le stesse query dell'app mobile.
+  // sqflite non fornisce il backend Windows nativo: usa SQLite via FFI su Windows.
   if (Platform.isWindows) {
-    ffi.sqfliteFfiInit();
-    databaseFactory = ffi.databaseFactoryFfi;
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
   }
 
   await NotificationService().init();
@@ -67,18 +66,7 @@ class DatabaseHelper {
   }
 
   Future<Database> _initDB(String fileName) async {
-    String dbPath;
-
-    if (Platform.isWindows) {
-      final appDir = await getApplicationDocumentsDirectory();
-      final databaseDir = Directory(p.join(appDir.path, 'databases'));
-      if (!await databaseDir.exists()) {
-        await databaseDir.create(recursive: true);
-      }
-      dbPath = databaseDir.path;
-    } else {
-      dbPath = await getDatabasesPath();
-    }
+    final dbPath = await getDatabasesPath();
 
     return openDatabase(
       p.join(dbPath, fileName),
@@ -386,18 +374,10 @@ CREATE TABLE rate (
       await txn.delete('preventivi');
       await txn.delete('prodotti');
       await txn.delete('clienti');
-      for (final row in clienti) {
-        await txn.insert('clienti', row);
-      }
-      for (final row in prodotti) {
-        await txn.insert('prodotti', row);
-      }
-      for (final row in preventivi) {
-        await txn.insert('preventivi', row);
-      }
-      for (final row in rate) {
-        await txn.insert('rate', row);
-      }
+      for (final row in clienti) await txn.insert('clienti', row);
+      for (final row in prodotti) await txn.insert('prodotti', row);
+      for (final row in preventivi) await txn.insert('preventivi', row);
+      for (final row in rate) await txn.insert('rate', row);
     });
     await createAutomaticBackup();
   }
@@ -426,11 +406,6 @@ class NotificationService {
   }
 
   Future<bool> richiediPermessi() async {
-    if (Platform.isWindows) {
-      // Windows non usa il permesso Android per le notifiche locali.
-      return true;
-    }
-
     final android = await _android();
     if (android == null) return false;
 
@@ -440,8 +415,6 @@ class NotificationService {
   }
 
   Future<bool> notificheAbilitate() async {
-    if (Platform.isWindows) return true;
-
     final android = await _android();
     if (android == null) return false;
     return await android.areNotificationsEnabled() ?? false;
@@ -455,20 +428,17 @@ class NotificationService {
 
     const settings = InitializationSettings(
       android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-      iOS: DarwinInitializationSettings(
-        requestAlertPermission: true,
-        requestBadgePermission: true,
-        requestSoundPermission: true,
-      ),
       windows: WindowsInitializationSettings(
-        appName: 'Gestione Preventivi',
-        appUserModelId: 'LeNaif.Preventivi.1_0_0',
-        guid: '2c7c3d5e-5b54-4f22-9b3e-4d2f4b1c8a70',
+        appName: 'Preventivi',
+        appUserModelId: 'EmanueleVerde.Preventivi',
+        guid: '8d3b4e11-4d2f-4c7a-9b41-7d2f0f8a6c21',
       ),
     );
 
-    await _notifications.initialize(settings);
-    await richiediPermessi();
+    await _notifications.initialize(settings: settings);
+    if (Platform.isAndroid) {
+      await richiediPermessi();
+    }
   }
 
   Future<bool> programmaNotificaRata({
@@ -477,17 +447,22 @@ class NotificationService {
     required double importo,
     required DateTime dataScadenza,
   }) async {
+    // Il plugin Windows supporta le notifiche toast, ma non la pianificazione
+    // futura/ripetuta delle notifiche. La programmazione delle rate resta attiva
+    // su Android, dove l'app la utilizza attualmente.
+    if (Platform.isWindows) return false;
+
     final when = tz.TZDateTime.from(dataScadenza, tz.local);
 
     if (when.isBefore(tz.TZDateTime.now(tz.local))) return false;
 
     try {
       await _notifications.zonedSchedule(
-        id,
-        'Rata in scadenza',
-        'Oggi scade la rata di €${importo.toStringAsFixed(2)} per $cliente.',
-        when,
-        const NotificationDetails(
+        id: id,
+        title: 'Rata in scadenza',
+        body: 'Oggi scade la rata di €${importo.toStringAsFixed(2)} per $cliente.',
+        scheduledDate: when,
+        notificationDetails: const NotificationDetails(
           android: AndroidNotificationDetails(
             'rate_channel',
             'Notifiche Rate',
@@ -495,7 +470,6 @@ class NotificationService {
             importance: Importance.max,
             priority: Priority.high,
           ),
-          windows: WindowsNotificationDetails(),
         ),
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       );
@@ -504,11 +478,11 @@ class NotificationService {
       // Se l'utente non concede gli allarmi esatti, usa il fallback inexact.
       try {
         await _notifications.zonedSchedule(
-          id,
-          'Rata in scadenza',
-          'Oggi scade la rata di €${importo.toStringAsFixed(2)} per $cliente.',
-          when,
-          const NotificationDetails(
+          id: id,
+          title: 'Rata in scadenza',
+          body: 'Oggi scade la rata di €${importo.toStringAsFixed(2)} per $cliente.',
+          scheduledDate: when,
+          notificationDetails: const NotificationDetails(
             android: AndroidNotificationDetails(
               'rate_channel',
               'Notifiche Rate',
@@ -517,7 +491,6 @@ class NotificationService {
               importance: Importance.max,
               priority: Priority.high,
             ),
-            windows: WindowsNotificationDetails(),
           ),
           androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
         );

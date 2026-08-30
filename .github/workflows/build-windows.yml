@@ -1,0 +1,107 @@
+name: Build Preventivi Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.38.1"
+          channel: stable
+          cache: true
+
+      - name: Check Flutter
+        shell: pwsh
+        run: |
+          flutter --version
+          flutter doctor -v
+
+      - name: Find Flutter project
+        shell: pwsh
+        run: |
+          $pubspec = Get-ChildItem -Path $env:GITHUB_WORKSPACE -Filter pubspec.yaml -Recurse -File |
+            Where-Object { $_.FullName -notmatch '\\build\\' } |
+            Select-Object -First 1
+          if (-not $pubspec) { Write-Error "pubspec.yaml non trovato nel repository." }
+          $projectDir = $pubspec.Directory.FullName
+          "APP_DIR=$projectDir" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Progetto Flutter: $projectDir"
+
+      - name: Install dependencies
+        shell: pwsh
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter pub get
+
+      - name: Check Windows platform
+        shell: pwsh
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          if (-not (Test-Path "windows")) {
+            Write-Host "Cartella windows assente: la genero."
+            flutter create --platforms=windows .
+          } else {
+            Write-Host "Cartella windows già presente: non la sovrascrivo."
+          }
+
+      - name: Analyze
+        shell: pwsh
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          flutter analyze --no-fatal-infos
+
+      - name: Build Windows Release
+        shell: pwsh
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          flutter build windows --release
+
+      - name: Verify Windows build
+        shell: pwsh
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          $exe = Get-ChildItem -Path "build\windows" -Filter "preventivi_app.exe" -Recurse -File | Select-Object -First 1
+          if (-not $exe) { $exe = Get-ChildItem -Path "build\windows" -Filter "*.exe" -Recurse -File | Select-Object -First 1 }
+          if (-not $exe) { Write-Error "File EXE non trovato dopo la compilazione." }
+          Write-Host "EXE trovato: $($exe.FullName)"
+          "WINDOWS_RELEASE_DIR=$($exe.Directory.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Create Windows ZIP
+        shell: pwsh
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $releaseDir = "${{ env.WINDOWS_RELEASE_DIR }}"
+          $zip = Join-Path "${{ github.workspace }}" "Preventivi-Windows.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path "$releaseDir\*" -DestinationPath $zip -Force
+          if (-not (Test-Path $zip)) { Write-Error "Impossibile creare Preventivi-Windows.zip." }
+          Write-Host "ZIP creato: $zip"
+
+      - name: Upload Windows ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: Preventivi-Windows
+          path: Preventivi-Windows.zip
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Upload Windows Release folder
+        uses: actions/upload-artifact@v4
+        with:
+          name: Preventivi-Windows-Release
+          path: ${{ env.WINDOWS_RELEASE_DIR }}
+          if-no-files-found: error
+          compression-level: 0

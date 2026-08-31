@@ -637,15 +637,15 @@ class PdfGenerator {
           ),
           pw.SizedBox(height: 18),
           pw.TableHelper.fromTextArray(
-            headers: ['N.', 'Prodotto / Servizio', 'Q.tà', 'Prezzo unit. (EUR )', 'Totale (EUR )'],
+            headers: ['N.', 'Prodotto / Servizio', 'Q.tà', 'Prezzo unit.', 'Totale'],
             data: [
               for (var i = 0; i < articoli.length; i++)
                 [
                   '${i + 1}',
                   (articoli[i]['nome'] ?? '').toString(),
                   ((articoli[i]['quantita'] as num?)?.toDouble() ?? 1).toStringAsFixed(2),
-                  'EUR ${((articoli[i]['prezzo'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
-                  'EUR ${(((articoli[i]['prezzo'] as num?)?.toDouble() ?? 0) * ((articoli[i]['quantita'] as num?)?.toDouble() ?? 1)).toStringAsFixed(2)}',
+                  ((articoli[i]['prezzo'] as num?)?.toDouble() ?? 0).toStringAsFixed(2),
+                  (((articoli[i]['prezzo'] as num?)?.toDouble() ?? 0) * ((articoli[i]['quantita'] as num?)?.toDouble() ?? 1)).toStringAsFixed(2),
                 ],
             ],
             headerStyle: pw.TextStyle(
@@ -674,7 +674,7 @@ class PdfGenerator {
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.end,
               children: [
-                pw.Text('Imponibile: EUR ${imponibile.toStringAsFixed(2)}'),
+                pw.Text('Imponibile: ${imponibile.toStringAsFixed(2)}'),
                 if (ivaPercent == 0)
                   pw.Text(
                     'FUORI CAMPO IVA FCI',
@@ -682,7 +682,7 @@ class PdfGenerator {
                   )
                 else
                   pw.Text(
-                    'IVA ${ivaPercent.toStringAsFixed(0)}%: EUR ${iva.toStringAsFixed(2)}',
+                    'IVA ${ivaPercent.toStringAsFixed(0)}%: ${iva.toStringAsFixed(2)}',
                   ),
                 pw.SizedBox(height: 5),
                 pw.Container(
@@ -716,7 +716,7 @@ class PdfGenerator {
                 borderRadius: const pw.BorderRadius.all(pw.Radius.circular(5)),
               ),
               child: pw.Text(
-                '$numeroRate rate mensili da EUR ${quota.toStringAsFixed(2)} ciascuna.',
+                '$numeroRate rate mensili da ${quota.toStringAsFixed(2)} ciascuna.',
               ),
             ),
           ],
@@ -1937,7 +1937,8 @@ class _ListaPreventiviScreenState extends State<ListaPreventiviScreen> {
                         subtitle: Padding(
                           padding: const EdgeInsets.only(top: 4),
                           child: Text(
-                            '${x['cliente']}\n'
+                            '${x['cliente']}
+'
                             '${DateFormat('dd/MM/yyyy').format(data)} • '
                             '${x['numero_rate']} '
                             '${x['numero_rate'] == 1 ? 'rata' : 'rate'}',
@@ -2753,7 +2754,8 @@ class _ClientiScreenState extends State<ClientiScreen> {
                         c['indirizzo'],
                       if ((c['parrocchia'] ?? '').toString().isNotEmpty)
                         'Parrocchia: ${c['parrocchia']}',
-                    ].join('\n');
+                    ].join('
+');
 
                     return Card(
                       margin: const EdgeInsets.only(bottom: 8),

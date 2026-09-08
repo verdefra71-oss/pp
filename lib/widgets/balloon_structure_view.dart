@@ -153,7 +153,6 @@ class _StructurePainter extends CustomPainter {
     }
 
     // Aggiunge posizioni intermedie per strutture molto dense.
-    var idx = 0;
     while (positions.length < math.min(total, 120)) {
       final t = (positions.length % 20) / 19;
       final y = bottom - t * (bottom - top);

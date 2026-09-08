@@ -1,6 +1,7 @@
 
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -231,7 +232,7 @@ class _SignaturePadState extends State<SignaturePad> {
         TextButton(onPressed:()=>setState(()=>points.clear()),child:const Text('Cancella')),
         const Spacer(),
         FilledButton(onPressed:() async {
-          final recorder=PictureRecorder();
+          final recorder=ui.PictureRecorder();
           final canvas=Canvas(recorder);
           canvas.drawRect(const Rect.fromLTWH(0,0,700,180),Paint()..color=Colors.white);
           final p=Paint()..color=Colors.black..strokeWidth=2.2..strokeCap=StrokeCap.round..style=PaintingStyle.stroke;
@@ -240,7 +241,8 @@ class _SignaturePadState extends State<SignaturePad> {
             if(a!=null&&b!=null)canvas.drawLine(a,b,p);
           }
           final img=await recorder.endRecording().toImage(700,180);
-          final data=await img.toByteData(format:ImageByteFormat.png);
+          final data=await img.toByteData(format:ui.ImageByteFormat.png);
+          if (!mounted) return;
           widget.onSaved(data?.buffer.asUint8List());
         },child:const Text('Usa firma'))
       ])
@@ -305,7 +307,7 @@ class _WizardPageState extends State<WizardPage> {
       if (c.containsKey(e.key)) c[e.key]!.text = (e.value ?? '').toString();
     }
     if (widget.initial?['checks'] is Map) {
-      checks.addAll(Map<String,dynamic>.from(widget.initial!['checks']));
+      checks.addAll(Map<String, bool>.from((widget.initial!['checks'] as Map).map((k, v) => MapEntry(k.toString(), v == true))));
     }
     if (widget.initial?['files'] is List) files = List<String>.from(widget.initial!['files']);
     if (widget.initial?['firma_tecnico_png'] != null) firmaTecnico = base64Decode(widget.initial!['firma_tecnico_png']);

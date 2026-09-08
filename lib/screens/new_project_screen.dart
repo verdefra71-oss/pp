@@ -5,6 +5,7 @@ import '../models/balloon_project.dart';
 import '../models/balloon_section.dart';
 import '../services/image_analysis_service.dart';
 import '../services/storage_service.dart';
+import '../widgets/balloon_structure_view.dart';
 import 'project_detail_screen.dart';
 
 class NewProjectScreen extends StatefulWidget {
@@ -125,7 +126,36 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
           ),
           if (sections.isNotEmpty) ...[
             const SizedBox(height: 16),
-            Text('Anteprima: ${sections.length} sezioni', style: Theme.of(context).textTheme.titleMedium),
+            Card(
+              clipBehavior: Clip.antiAlias,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'RISULTATO DEL CALCOLO',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Il calcolo è terminato. Qui sotto puoi verificare visivamente come verrà composta la struttura con i palloncini.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 12),
+                    BalloonStructureView(
+                      sections: sections,
+                      widthCm: double.tryParse(widthController.text.replaceAll(',', '.')) ?? 120,
+                      heightCm: double.tryParse(heightController.text.replaceAll(',', '.')) ?? 180,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text('Dettaglio calcolo: ${sections.length} sezioni', style: Theme.of(context).textTheme.titleMedium),
             ...sections.map((s) => ListTile(
               leading: CircleAvatar(backgroundColor: Color(s.colorValue)),
               title: Text(s.name),

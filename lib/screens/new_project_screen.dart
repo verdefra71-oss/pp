@@ -149,6 +149,7 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
                       sections: sections,
                       widthCm: double.tryParse(widthController.text.replaceAll(',', '.')) ?? 120,
                       heightCm: double.tryParse(heightController.text.replaceAll(',', '.')) ?? 180,
+                      imagePath: imageFile!.path,
                     ),
                   ],
                 ),

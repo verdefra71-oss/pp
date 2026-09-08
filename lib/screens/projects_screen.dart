@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../models/balloon_project.dart';
 import '../services/storage_service.dart';
 import 'project_detail_screen.dart';
 
@@ -10,9 +12,8 @@ class ProjectsScreen extends StatefulWidget {
 }
 
 class _ProjectsScreenState extends State<ProjectsScreen> {
-  final storage = StorageService();
-  var loading = true;
-  var projects = [];
+  final StorageService _storage = StorageService();
+  List<BalloonProject> _projects = <BalloonProject>[];
 
   @override
   void initState() {
@@ -21,49 +22,48 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   }
 
   Future<void> _load() async {
-    final data = await storage.loadProjects();
+    final projects = await _storage.loadProjects();
     if (!mounted) return;
-    setState(() {
-      projects = data;
-      loading = false;
-    });
+    setState(() => _projects = projects);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('I miei progetti')),
-      body: loading
-          ? const Center(child: CircularProgressIndicator())
-          : projects.isEmpty
-              ? const Center(child: Text('Nessun progetto salvato.'))
-              : ListView.builder(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: projects.length,
-                  itemBuilder: (context, i) {
-                    final p = projects[i];
-                    return Card(
-                      child: ListTile(
-                        leading: const CircleAvatar(child: Icon(Icons.balloon)),
-                        title: Text(p.name),
-                        subtitle: Text(
-                          '${p.heightCm.toStringAsFixed(0)} cm • '
-                          '${p.totalBalloons} palloncini',
+      body: _projects.isEmpty
+          ? const Center(child: Text('Nessun progetto salvato.'))
+          : ListView.builder(
+              padding: const EdgeInsets.all(12),
+              itemCount: _projects.length,
+              itemBuilder: (context, index) {
+                final project = _projects[index];
+                return Card(
+                  child: ListTile(
+                    leading: const CircleAvatar(
+                      child: Icon(Icons.celebration),
+                    ),
+                    title: Text(project.name),
+                    subtitle: Text(
+                      '${project.widthCm.toStringAsFixed(0)} × '
+                      '${project.heightCm.toStringAsFixed(0)} cm • '
+                      '${project.totalBalloons} palloncini',
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              ProjectDetailScreen(project: project),
                         ),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () async {
-                          await Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => ProjectDetailScreen(project: p),
-                            ),
-                          );
-                          _load();
-                        },
-                      ),
-                    );
-                  },
-                ),
+                      );
+                      _load();
+                    },
+                  ),
+                );
+              },
+            ),
     );
   }
 }

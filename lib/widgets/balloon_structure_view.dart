@@ -1,25 +1,88 @@
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:image/image.dart' as img;
 import '../models/balloon_section.dart';
 
-/// Anteprima visiva della struttura calcolata.
-/// I palloncini sono disposti come una vera composizione: arco/garland
-/// verticale, con le sezioni mantenute nello stesso ordine del calcolo.
-class BalloonStructureView extends StatelessWidget {
+/// Mostra l'immagine usata per il calcolo e la ricostruisce con palloncini
+/// distribuiti sulla forma realmente presente nell'immagine.
+class BalloonStructureView extends StatefulWidget {
   const BalloonStructureView({
     super.key,
     required this.sections,
     required this.widthCm,
     required this.heightCm,
+    required this.imagePath,
   });
 
   final List<BalloonSection> sections;
   final double widthCm;
   final double heightCm;
+  final String imagePath;
+
+  @override
+  State<BalloonStructureView> createState() => _BalloonStructureViewState();
+}
+
+class _BalloonStructureViewState extends State<BalloonStructureView> {
+  late Future<_ShapeData> _shapeFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _shapeFuture = _loadShape();
+  }
+
+  @override
+  void didUpdateWidget(covariant BalloonStructureView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.imagePath != widget.imagePath || oldWidget.sections != widget.sections) {
+      _shapeFuture = _loadShape();
+    }
+  }
+
+  Future<_ShapeData> _loadShape() async {
+    final bytes = await File(widget.imagePath).readAsBytes();
+    final source = img.decodeImage(bytes);
+    if (source == null) throw Exception('Immagine non leggibile.');
+
+    final small = img.copyResize(source, width: 96, height: 96);
+    final mask = <bool>[];
+    var foreground = 0;
+
+    for (final p in small) {
+      final r = p.r.toDouble();
+      final g = p.g.toDouble();
+      final b = p.b.toDouble();
+      final maxC = math.max(r, math.max(g, b));
+      final minC = math.min(r, math.min(g, b));
+      final saturation = maxC == 0 ? 0 : (maxC - minC) / maxC;
+      final luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+      // Ignora lo sfondo bianco e il watermark molto chiaro. Mantiene
+      // sia le zone scure sia quelle colorate del soggetto.
+      final isSubject = luminance < 225 || saturation > 0.12;
+      mask.add(isSubject);
+      if (isSubject) foreground++;
+    }
+
+    if (foreground < 80) {
+      // Fallback: usa una maschera morbida centrale se l'immagine è troppo chiara.
+      for (var i = 0; i < mask.length; i++) {
+        final x = i % 96;
+        final y = i ~/ 96;
+        final dx = (x - 48) / 42;
+        final dy = (y - 48) / 42;
+        mask[i] = dx * dx + dy * dy < 1;
+      }
+    }
+
+    return _ShapeData(mask: mask, width: 96, height: 96);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final total = sections.fold<int>(0, (sum, s) => sum + s.count);
+    final total = widget.sections.fold<int>(0, (sum, s) => sum + s.count);
     if (total <= 0) return const SizedBox.shrink();
 
     return Column(
@@ -40,26 +103,60 @@ class BalloonStructureView extends StatelessWidget {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'ANTEPRIMA REALE DELLA STRUTTURA',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+                      'VERIFICA STRUTTURA CON I PALLONCINI',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               Text(
-                'Dimensioni: ${widthCm.toStringAsFixed(0)} × ${heightCm.toStringAsFixed(0)} cm  •  $total palloncini',
+                'I palloncini seguono la forma del disegno caricato. Totale: $total',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
-              const SizedBox(height: 12),
-              AspectRatio(
-                aspectRatio: 0.82,
-                child: CustomPaint(
-                  painter: _StructurePainter(sections),
-                  child: const SizedBox.expand(),
-                ),
+              const SizedBox(height: 10),
+              FutureBuilder<_ShapeData>(
+                future: _shapeFuture,
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData) {
+                    return const AspectRatio(
+                      aspectRatio: 1,
+                      child: Center(child: CircularProgressIndicator()),
+                    );
+                  }
+                  if (snapshot.hasError) {
+                    return const Padding(
+                      padding: EdgeInsets.all(20),
+                      child: Text('Impossibile creare l’anteprima della struttura.'),
+                    );
+                  }
+
+                  return ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: AspectRatio(
+                      aspectRatio: 1,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Image.file(File(widget.imagePath), fit: BoxFit.contain),
+                          CustomPaint(
+                            painter: _BalloonOverlayPainter(
+                              shape: snapshot.data!,
+                              sections: widget.sections,
+                              total: total,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'L’immagine originale resta visibile come riferimento; i palloncini sono sovrapposti alla sagoma riconosciuta.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 11, color: Colors.black54),
               ),
             ],
           ),
@@ -68,7 +165,7 @@ class BalloonStructureView extends StatelessWidget {
         Wrap(
           spacing: 10,
           runSpacing: 8,
-          children: sections.map((s) {
+          children: widget.sections.map((s) {
             return Container(
               padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
               decoration: BoxDecoration(
@@ -100,130 +197,106 @@ class BalloonStructureView extends StatelessWidget {
   }
 }
 
-class _StructurePainter extends CustomPainter {
-  _StructurePainter(this.sections);
+class _ShapeData {
+  const _ShapeData({required this.mask, required this.width, required this.height});
+  final List<bool> mask;
+  final int width;
+  final int height;
+}
+
+class _BalloonOverlayPainter extends CustomPainter {
+  _BalloonOverlayPainter({
+    required this.shape,
+    required this.sections,
+    required this.total,
+  });
+
+  final _ShapeData shape;
   final List<BalloonSection> sections;
+  final int total;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final total = sections.fold<int>(0, (sum, s) => sum + s.count);
-    if (total <= 0) return;
+    final points = <Offset>[];
+    final target = math.min(total, 220);
+    final step = math.max(3, (math.sqrt((shape.width * shape.height) / target)).round());
 
-    final bg = Paint()..color = const Color(0xFFF8F8F8);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(12)),
-      bg,
-    );
-
-    // Telaio della struttura.
-    final frame = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 4
-      ..color = const Color(0xFF9E9E9E);
-    final path = Path();
-    final left = size.width * .18;
-    final right = size.width * .82;
-    final top = size.height * .12;
-    final bottom = size.height * .91;
-    path.moveTo(left, bottom);
-    path.lineTo(left, top + size.height * .18);
-    path.cubicTo(left, top, right, top, right, top + size.height * .18);
-    path.lineTo(right, bottom);
-    canvas.drawPath(path, frame);
-
-    // Distribuiamo esattamente i conteggi calcolati lungo il telaio.
-    final positions = <Offset>[];
-    final rows = math.max(8, math.min(28, (size.height / 25).round()));
-    for (var i = 0; i < rows; i++) {
-      final t = i / math.max(rows - 1, 1);
-      final y = bottom - t * (bottom - top);
-      final arch = math.sin(math.pi * math.min(t * 1.35, 1.0));
-      final center = size.width / 2;
-      final half = (right - left) / 2 * arch;
-      if (i < rows * .72) {
-        // Due colonne laterali.
-        positions.add(Offset(left + 5, y));
-        positions.add(Offset(right - 5, y));
-      } else {
-        // Parte superiore curva.
-        positions.add(Offset(center - half, y));
-        positions.add(Offset(center + half, y));
-        if (i.isEven) positions.add(Offset(center, y));
+    for (var y = 1; y < shape.height - 1; y += step) {
+      for (var x = 1; x < shape.width - 1; x += step) {
+        if (!_isInside(x, y)) continue;
+        final nearEdge = !_isInside(x - 1, y) || !_isInside(x + 1, y) || !_isInside(x, y - 1) || !_isInside(x, y + 1);
+        if (nearEdge || ((x + y) % 2 == 0)) {
+          points.add(Offset(
+            (x + .5) / shape.width * size.width,
+            (y + .5) / shape.height * size.height,
+          ));
+        }
       }
     }
 
-    // Aggiunge posizioni intermedie per strutture molto dense.
-    while (positions.length < math.min(total, 120)) {
-      final t = (positions.length % 20) / 19;
-      final y = bottom - t * (bottom - top);
-      positions.add(Offset(
-        size.width * (.22 + .56 * t),
-        y,
-      ));
+    if (points.length < target) {
+      for (var y = 1; y < shape.height - 1 && points.length < target; y++) {
+        for (var x = 1; x < shape.width - 1 && points.length < target; x++) {
+          if (_isInside(x, y) && (x + y) % 3 == 0) {
+            points.add(Offset(
+              (x + .5) / shape.width * size.width,
+              (y + .5) / shape.height * size.height,
+            ));
+          }
+        }
+      }
     }
 
-    final visible = math.min(total, positions.length);
+    if (points.isEmpty) return;
+    points.shuffle(math.Random(7));
+
     var cursor = 0;
     for (final section in sections) {
-      final amount = ((visible * section.count) / total).round();
+      final amount = ((target * section.count) / total).round();
       final color = Color(section.colorValue);
-      for (var i = 0; i < amount && cursor < visible; i++) {
-        _drawBalloon(canvas, positions[cursor++], color, size);
+      for (var i = 0; i < amount && cursor < points.length && cursor < target; i++) {
+        _drawBalloon(canvas, points[cursor++], color, size);
       }
     }
 
-    // Se gli arrotondamenti lasciano qualche posizione, riempiamo con l'ultimo colore.
-    final fallbackColor = Color(sections.last.colorValue);
-    while (cursor < visible) {
-      _drawBalloon(canvas, positions[cursor++], fallbackColor, size);
-    }
-
-    if (total > visible) {
-      final tp = TextPainter(
-        text: TextSpan(
-          text: '+${total - visible} palloncini mostrati in scala ridotta',
-          style: const TextStyle(fontSize: 11, color: Colors.black54),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      tp.paint(canvas, Offset(12, size.height - 24));
+    while (cursor < target && cursor < points.length) {
+      _drawBalloon(canvas, points[cursor++], Color(sections.last.colorValue), size);
     }
   }
 
+  bool _isInside(int x, int y) {
+    if (x < 0 || y < 0 || x >= shape.width || y >= shape.height) return false;
+    return shape.mask[y * shape.width + x];
+  }
+
   void _drawBalloon(Canvas canvas, Offset center, Color color, Size size) {
-    final radius = math.max(7.0, math.min(12.0, size.width / 24));
-    final body = Paint()..color = color;
-    final rect = Rect.fromCenter(
-      center: center,
-      width: radius * 1.55,
-      height: radius * 1.9,
-    );
+    final radius = math.max(7.0, math.min(15.0, size.width / 38));
+    final rect = Rect.fromCenter(center: center, width: radius * 1.35, height: radius * 1.65);
+
+    final shadow = Paint()..color = Colors.black.withValues(alpha: .22);
+    canvas.drawOval(rect.shift(const Offset(1.5, 2)), shadow);
+
+    final body = Paint()..color = color.withValues(alpha: .94);
     canvas.drawOval(rect, body);
 
-    final knot = Path()
-      ..moveTo(center.dx - radius * .16, center.dy + radius * .78)
-      ..lineTo(center.dx + radius * .16, center.dy + radius * .78)
-      ..lineTo(center.dx, center.dy + radius * 1.08)
-      ..close();
-    canvas.drawPath(knot, body);
-
-    final shine = Paint()..color = Colors.white.withValues(alpha: .62);
+    final shine = Paint()..color = Colors.white.withValues(alpha: .68);
     canvas.drawOval(
       Rect.fromCenter(
-        center: center.translate(-radius * .27, -radius * .32),
-        width: radius * .30,
-        height: radius * .48,
+        center: center.translate(-radius * .25, -radius * .28),
+        width: radius * .25,
+        height: radius * .42,
       ),
       shine,
     );
 
-    final outline = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = .7
-      ..color = Colors.black.withValues(alpha: .18);
-    canvas.drawOval(rect, outline);
+    final knot = Path()
+      ..moveTo(center.dx - radius * .12, center.dy + radius * .78)
+      ..lineTo(center.dx + radius * .12, center.dy + radius * .78)
+      ..lineTo(center.dx, center.dy + radius * 1.02)
+      ..close();
+    canvas.drawPath(knot, body);
   }
 
   @override
-  bool shouldRepaint(covariant _StructurePainter oldDelegate) => true;
+  bool shouldRepaint(covariant _BalloonOverlayPainter oldDelegate) => true;
 }

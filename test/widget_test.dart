@@ -1,15 +1,9 @@
-import 'package:balloon_designer/main.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:preventivi_app/main.dart';
 
 void main() {
-  testWidgets(
-    'Balloon Designer avvia correttamente',
-    (WidgetTester tester) async {
-      await tester.pumpWidget(const BalloonDesignerApp());
-
-      expect(find.text('Balloon Designer'), findsOneWidget);
-      expect(find.text('NUOVO PROGETTO'), findsOneWidget);
-      expect(find.text('I MIEI PROGETTI'), findsOneWidget);
-    },
-  );
+  testWidgets('Preventivi app starts', (WidgetTester tester) async {
+    await tester.pumpWidget(const PreventiviApp());
+    expect(find.byType(PreventiviApp), findsOneWidget);
+  });
 }

@@ -1,1 +1,0 @@
-Cartella riservata agli asset dell'app.

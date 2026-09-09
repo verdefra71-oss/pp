@@ -650,7 +650,7 @@ class PdfGenerator {
                       ),
                     ),
                     if (documentoPagato)
-                      pw.Text('PAGATO', style: pw.TextStyle(fontSize: 15, fontWeight: pw.FontWeight.bold, color: PdfColors.green)),
+                      pw.Text('PAGATO', style: const pw.TextStyle(fontSize: 15, fontWeight: pw.FontWeight.bold, color: PdfColors.green)),
                     pw.SizedBox(height: 8),
                     pw.Divider(color: pink),
                     pw.SizedBox(height: 8),
@@ -1357,7 +1357,7 @@ class _NuovoPreventivoScreenState extends State<NuovoPreventivoScreen> {
       final db = DatabaseHelper.instance;
       final numero = await db.prossimoNumeroPreventivo();
 
-      final id = await db.insertPreventivo(
+      await db.insertPreventivo(
         numero: numero,
         cliente: cliente,
         totale: totale,
@@ -2472,10 +2472,8 @@ class _ModificaPreventivoScreenState
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Preventivo modificato e PDF rigenerato.',
-            ),
+          const SnackBar(
+            content: Text('Preventivo modificato e PDF rigenerato.'),
           ),
         );
         Navigator.pop(context);

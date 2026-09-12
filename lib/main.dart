@@ -77,6 +77,8 @@ class FinanceStore extends ChangeNotifier {
   double get expense => monthMovements.where((m)=>!m.income).fold(0, (s,m)=>s+m.amount);
   double get balance => income-expense;
 
+  void refresh() => notifyListeners();
+
   Future<void> addMovement(Movement m) async {
     movements.add(m);
     await save();
@@ -216,7 +218,7 @@ class Dashboard extends StatelessWidget {
 
   void _pickMonth(BuildContext context) async {
     final d=await showDatePicker(context:context,initialDate:store.selectedMonth,firstDate:DateTime(2020),lastDate:DateTime(2100));
-    if(d!=null){store.selectedMonth=DateTime(d.year,d.month);store.notifyListeners();}
+    if(d!=null){store.selectedMonth=DateTime(d.year,d.month);store.refresh();}
   }
 }
 
@@ -231,7 +233,7 @@ class MovementsPage extends StatelessWidget {
       Text(DateFormat('MMMM yyyy','it_IT').format(store.selectedMonth),style:const TextStyle(color:Colors.black54)),
       const SizedBox(height:16),
       ...store.monthMovements.map((m)=>Dismissible(
-        key:ValueKey(m.id),background:Container(color:Colors.redAccent,borderRadius:BorderRadius.circular(18),alignment:Alignment.centerLeft,padding:const EdgeInsets.only(left:20),child:const Icon(Icons.delete,color:Colors.white)),
+        key:ValueKey(m.id),background:Container(decoration:BoxDecoration(color:Colors.redAccent,borderRadius:BorderRadius.circular(18)),alignment:Alignment.centerLeft,padding:const EdgeInsets.only(left:20),child:const Icon(Icons.delete,color:Colors.white)),
         direction:DismissDirection.endToStart,
         onDismissed:(_)=>store.deleteMovement(m.id),
         child:MovementTile(m:m,store:store)
@@ -259,42 +261,110 @@ class MovementTile extends StatelessWidget {
 class ReportPage extends StatelessWidget {
   final FinanceStore store;
   const ReportPage({super.key,required this.store});
-  @override Widget build(BuildContext context){
-    final fmt=NumberFormat.currency(locale:'it_IT',symbol:'€ ');
-    final data=store.monthMovements.where((m)=>!m.income).fold<Map<String,double>>({},(a,m){a[m.category]=(a[m.category]??0)+m.amount;return a;});
-    return ListView(padding:const EdgeInsets.all(20),children:[
-      const Text('Resoconto',style:TextStyle(fontSize:28,fontWeight:FontWeight.w800)),
-      const SizedBox(height:6),Text(DateFormat('MMMM yyyy','it_IT').format(store.selectedMonth)),
-      const SizedBox(height:18),
-      Row(children:[
-        Expanded(child:_summary('Entrate',fmt.format(store.income),Icons.trending_down,Colors.green)),
-        const SizedBox(width:10),
-        Expanded(child:_summary('Spese',fmt.format(store.expense),Icons.trending_up,Colors.red)),
-      ]),
-      const SizedBox(height:18),
-      Card(child:Padding(padding:const EdgeInsets.all(18),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-        const Text('Andamento',style:TextStyle(fontSize:19,fontWeight:FontWeight.w800)),const SizedBox(height:20),
-        SizedBox(height:210,child:BarChart(BarChartData(
-          borderData:FlBorderData(show:false),gridData:const FlGridData(show:false),
-          titlesData:FlTitlesData(show: true, rightTitles:const AxisTitles(sideTitles:SideTitles(showTitles:false)),topTitles:const AxisTitles(sideTitles:SideTitles(showTitles:false)),
-          bottomTitles:AxisTitles(sideTitles:SideTitles(showTitles:true,getTitlesWidget:(v,meta)=>Padding(padding:const EdgeInsets.only(top:8),child:Text(v==0?'Entrate':'Spese')))),
-          barGroups:[
-            BarChartGroupData(x:0,barRods:[BarChartRodData(toY:store.income,width:35,borderRadius:BorderRadius.circular(5))]),
-            BarChartGroupData(x:1,barRods:[BarChartRodData(toY:store.expense,width:35,borderRadius:BorderRadius.circular(5))]),
-          ]
-        )))
-      ]))),
-      const SizedBox(height:18),
-      Card(child:Padding(padding:const EdgeInsets.all(18),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-        const Text('Spese per categoria',style:TextStyle(fontSize:19,fontWeight:FontWeight.w800)),
-        const SizedBox(height:12),
-        if(data.isEmpty)const Text('Nessuna spesa nel mese.'),
-        ...data.entries.toList()..sort((a,b)=>b.value.compareTo(a.value))
-        .take(8).map((e)=>Padding(padding:const EdgeInsets.symmetric(vertical:6),child:Row(children:[Expanded(child:Text(e.key)),Text(fmt.format(e.value),style:const TextStyle(fontWeight:FontWeight.w700))])))
-      ])))
-    ]);
+
+  @override
+  Widget build(BuildContext context) {
+    final fmt = NumberFormat.currency(locale:'it_IT',symbol:'€ ');
+    final data = <String,double>{};
+    for (final m in store.monthMovements) {
+      if (!m.income) data[m.category] = (data[m.category] ?? 0) + m.amount;
+    }
+    final sorted = data.entries.toList()
+      ..sort((a,b) => b.value.compareTo(a.value));
+
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        const Text('Resoconto',style:TextStyle(fontSize:28,fontWeight:FontWeight.w800)),
+        const SizedBox(height:6),
+        Text(DateFormat('MMMM yyyy','it_IT').format(store.selectedMonth)),
+        const SizedBox(height:18),
+        Row(children:[
+          Expanded(child:_summary('Entrate',fmt.format(store.income),Icons.trending_down,Colors.green)),
+          const SizedBox(width:10),
+          Expanded(child:_summary('Spese',fmt.format(store.expense),Icons.trending_up,Colors.red)),
+        ]),
+        const SizedBox(height:18),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children:[
+                const Text('Andamento',style:TextStyle(fontSize:19,fontWeight:FontWeight.w800)),
+                const SizedBox(height:20),
+                SizedBox(
+                  height:210,
+                  child: BarChart(
+                    BarChartData(
+                      borderData: FlBorderData(show:false),
+                      gridData: const FlGridData(show:false),
+                      titlesData: FlTitlesData(
+                        rightTitles: const AxisTitles(sideTitles:SideTitles(showTitles:false)),
+                        topTitles: const AxisTitles(sideTitles:SideTitles(showTitles:false)),
+                        leftTitles: const AxisTitles(sideTitles:SideTitles(showTitles:true,reservedSize:42)),
+                        bottomTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles:true,
+                            getTitlesWidget:(v,meta) => Padding(
+                              padding: const EdgeInsets.only(top:8),
+                              child: Text(v == 0 ? 'Entrate' : 'Spese'),
+                            ),
+                          ),
+                        ),
+                      ),
+                      barGroups:[
+                        BarChartGroupData(x:0,barRods:[BarChartRodData(toY:store.income,width:35,borderRadius:BorderRadius.circular(5))]),
+                        BarChartGroupData(x:1,barRods:[BarChartRodData(toY:store.expense,width:35,borderRadius:BorderRadius.circular(5))]),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height:18),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children:[
+                const Text('Spese per categoria',style:TextStyle(fontSize:19,fontWeight:FontWeight.w800)),
+                const SizedBox(height:12),
+                if (sorted.isEmpty)
+                  const Text('Nessuna spesa nel mese.')
+                else
+                  ...sorted.take(8).map((e)=>Padding(
+                    padding: const EdgeInsets.symmetric(vertical:6),
+                    child: Row(children:[
+                      Expanded(child:Text(e.key)),
+                      Text(fmt.format(e.value),style:const TextStyle(fontWeight:FontWeight.w700)),
+                    ]),
+                  )),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
   }
-  Widget _summary(String t,String v,IconData i,Color c)=>Card(child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Icon(i,color:c),const SizedBox(height:8),Text(t,style:const TextStyle(color:Colors.black54)),Text(v,style:const TextStyle(fontSize:18,fontWeight:FontWeight.w800))])));
+
+  Widget _summary(String t,String v,IconData i,Color c) => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment:CrossAxisAlignment.start,
+        children:[
+          Icon(i,color:c),
+          const SizedBox(height:8),
+          Text(t,style:const TextStyle(color:Colors.black54)),
+          Text(v,style:const TextStyle(fontSize:18,fontWeight:FontWeight.w800)),
+        ],
+      ),
+    ),
+  );
 }
 
 class MorePage extends StatelessWidget {
@@ -333,9 +403,9 @@ Future<void> showAddMovement(BuildContext context, FinanceStore store,{bool? inc
       const SizedBox(height:10),
       TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Importo',prefixIcon:Icon(Icons.euro))),
       const SizedBox(height:10),
-      DropdownButtonFormField<String>(value:category,decoration:const InputDecoration(labelText:'Categoria'),items:store.categories.map((e)=>DropdownMenuItem(value:e,child:Text(e))).toList(),onChanged:(v)=>setState(()=>category=v!)),
+      DropdownButtonFormField<String>(initialValue:category,decoration:const InputDecoration(labelText:'Categoria'),items:store.categories.map((e)=>DropdownMenuItem(value:e,child:Text(e))).toList(),onChanged:(v)=>setState(()=>category=v!)),
       const SizedBox(height:10),
-      DropdownButtonFormField<String>(value:account,decoration:const InputDecoration(labelText:'Conto / carta'),items:store.accounts.map((e)=>DropdownMenuItem(value:e,child:Text(e))).toList(),onChanged:(v)=>setState(()=>account=v!)),
+      DropdownButtonFormField<String>(initialValue:account,decoration:const InputDecoration(labelText:'Conto / carta'),items:store.accounts.map((e)=>DropdownMenuItem(value:e,child:Text(e))).toList(),onChanged:(v)=>setState(()=>account=v!)),
       const SizedBox(height:18),
       SizedBox(width:double.infinity,child:FilledButton.icon(
         onPressed:() async {

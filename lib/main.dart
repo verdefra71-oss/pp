@@ -153,6 +153,14 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
+String italianMonthYear(DateTime date) {
+  const months = [
+    'gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno',
+    'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre',
+  ];
+  return '${months[date.month - 1]} ${date.year}';
+}
+
 class Dashboard extends StatelessWidget {
   final FinanceStore store;
   const Dashboard({super.key,required this.store});
@@ -160,7 +168,7 @@ class Dashboard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fmt=NumberFormat.currency(locale:'it_IT',symbol:'€ ');
-    final month=DateFormat('MMMM yyyy','it_IT').format(store.selectedMonth);
+    final month=italianMonthYear(store.selectedMonth);
     return ListView(
       padding: const EdgeInsets.fromLTRB(20,20,20,90),
       children:[
@@ -232,7 +240,7 @@ class MovementsPage extends StatelessWidget {
     children:[
       const Text('Movimenti',style:TextStyle(fontSize:28,fontWeight:FontWeight.w800)),
       const SizedBox(height:6),
-      Text(DateFormat('MMMM yyyy','it_IT').format(store.selectedMonth),style:const TextStyle(color:Colors.black54)),
+      Text(italianMonthYear(store.selectedMonth),style:const TextStyle(color:Colors.black54)),
       const SizedBox(height:16),
       ...store.monthMovements.map((m)=>Dismissible(
         key:ValueKey(m.id),background:Container(decoration:BoxDecoration(color:Colors.redAccent,borderRadius:BorderRadius.circular(18)),alignment:Alignment.centerLeft,padding:const EdgeInsets.only(left:20),child:const Icon(Icons.delete,color:Colors.white)),
@@ -279,7 +287,7 @@ class ReportPage extends StatelessWidget {
       children: [
         const Text('Resoconto',style:TextStyle(fontSize:28,fontWeight:FontWeight.w800)),
         const SizedBox(height:6),
-        Text(DateFormat('MMMM yyyy','it_IT').format(store.selectedMonth)),
+        Text(italianMonthYear(store.selectedMonth)),
         const SizedBox(height:18),
         Row(children:[
           Expanded(child:_summary('Entrate',fmt.format(store.income),Icons.trending_down,Colors.green)),

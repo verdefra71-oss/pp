@@ -158,13 +158,96 @@ class TxnSearch extends SearchDelegate<String> {
 }
 
 class Bills extends StatelessWidget {
-  final FamilyStore store; const Bills({super.key, required this.store});
-  @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('Bollette e ricorrenti'), actions: [IconButton(onPressed: () => showRecurring(context, store), icon: const Icon(Icons.add))]), body: ListView(padding: const EdgeInsets.all(8), children: [Card(child: const ListTile(leading: Icon(Icons.info_outline), title: Text('Spese ricorrenti'), subtitle: Text('Imposta importo e giorno di scadenza per mutuo, luce, gas, telefono, auto e altre spese.'))), ...store.recurring.map((r) => Card(child: ListTile(leading: const Icon(Icons.event_repeat), title: Text(r.name), subtitle: Text('${r.category} • giorno ${r.day}'), trailing: Text(money(r.amount)))))]);
+  final FamilyStore store;
+  const Bills({super.key, required this.store});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Bollette e ricorrenti'),
+        actions: [
+          IconButton(
+            onPressed: () => showRecurring(context, store),
+            icon: const Icon(Icons.add),
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(8),
+        children: [
+          const Card(
+            child: ListTile(
+              leading: Icon(Icons.info_outline),
+              title: Text('Spese ricorrenti'),
+              subtitle: Text('Imposta importo e giorno di scadenza per mutuo, luce, gas, telefono, auto e altre spese.'),
+            ),
+          ),
+          ...store.recurring.map(
+            (r) => Card(
+              child: ListTile(
+                leading: const Icon(Icons.event_repeat),
+                title: Text(r.name),
+                subtitle: Text('${r.category} • giorno ${r.day}'),
+                trailing: Text(money(r.amount)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-class BudgetPage extends StatefulWidget { final FamilyStore store; const BudgetPage({super.key, required this.store}); @override State<BudgetPage> createState() => _BudgetPageState(); }
+class BudgetPage extends StatefulWidget {
+  final FamilyStore store;
+  const BudgetPage({super.key, required this.store});
+
+  @override
+  State<BudgetPage> createState() => _BudgetPageState();
+}
+
 class _BudgetPageState extends State<BudgetPage> {
-  @override Widget build(BuildContext context) { final now = DateTime.now(), ym = '${now.year}-${now.month.toString().padLeft(2, '0')}'; return Scaffold(appBar: AppBar(title: const Text('Budget mensile'), actions: [IconButton(onPressed: () => showBudget(context, widget.store), icon: const Icon(Icons.add))]), body: ListView(children: widget.store.budgets.map((b) { final used = widget.store.categoryExpense(ym, b.category), pct = b.limit == 0 ? 0.0 : (used / b.limit).clamp(0.0, 1.0).toDouble(); return Card(child: ListTile(title: Text(b.category), subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const SizedBox(height: 6), LinearProgressIndicator(value: pct), const SizedBox(height: 4), Text('${money(used)} di ${money(b.limit)}')]), trailing: Icon(used <= b.limit ? Icons.check_circle : Icons.warning, color: used <= b.limit ? Colors.green : Colors.red))); }).toList()); }
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final ym = '${now.year}-${now.month.toString().padLeft(2, '0')}';
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Budget mensile'),
+        actions: [
+          IconButton(
+            onPressed: () => showBudget(context, widget.store),
+            icon: const Icon(Icons.add),
+          ),
+        ],
+      ),
+      body: ListView(
+        children: widget.store.budgets.map((b) {
+          final used = widget.store.categoryExpense(ym, b.category);
+          final double pct = b.limit == 0 ? 0.0 : (used / b.limit).clamp(0.0, 1.0).toDouble();
+          return Card(
+            child: ListTile(
+              title: Text(b.category),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 6),
+                  LinearProgressIndicator(value: pct),
+                  const SizedBox(height: 4),
+                  Text('${money(used)} di ${money(b.limit)}'),
+                ],
+              ),
+              trailing: Icon(
+                used <= b.limit ? Icons.check_circle : Icons.warning,
+                color: used <= b.limit ? Colors.green : Colors.red,
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
 }
 
 class Reports extends StatelessWidget { final FamilyStore store; const Reports({super.key, required this.store}); @override Widget build(BuildContext context) { final now = DateTime.now(); return Scaffold(appBar: AppBar(title: const Text('Report')), body: ListView(padding: const EdgeInsets.all(12), children: [for (int i = 0; i < 6; i++) ...reportMonth(store, DateTime(now.year, now.month - i, 1))])); } }
@@ -180,14 +263,74 @@ Future<void> showTxn(BuildContext context, FamilyStore store, {Txn? existing}) a
   bool income = existing?.income ?? false;
   String cat = existing?.category ?? store.categories.first;
   String account = existing?.account ?? 'Banca';
-  await showDialog<void>(context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, set) => AlertDialog(title: Text(existing == null ? 'Nuovo movimento' : 'Modifica movimento'), content: SizedBox(width: 420, child: SingleChildScrollView(child: Column(children: [
-    TextField(controller: desc, decoration: const InputDecoration(labelText: 'Descrizione')), const SizedBox(height: 10),
-    TextField(controller: amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Importo (€)')), const SizedBox(height: 10),
-    SwitchListTile(value: income, onChanged: (v) => set(() => income = v), title: const Text('È un’entrata')),
-    DropdownButtonFormField<String>(initialValue: cat, decoration: const InputDecoration(labelText: 'Categoria'), items: store.categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(), onChanged: (v) { if (v != null) set(() => cat = v); }), const SizedBox(height: 10),
-    DropdownButtonFormField<String>(initialValue: account, decoration: const InputDecoration(labelText: 'Conto'), items: store.accounts.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(), onChanged: (v) { if (v != null) set(() => account = v); }), const SizedBox(height: 10),
-    TextField(controller: dateController, decoration: const InputDecoration(labelText: 'Data (AAAA-MM-GG)')), const SizedBox(height: 10), TextField(controller: note, decoration: const InputDecoration(labelText: 'Nota')),
-  ]))), actions: [if (existing != null) TextButton(onPressed: () { store.remove(existing); Navigator.pop(ctx); }, child: const Text('Elimina', style: TextStyle(color: Colors.red))), TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annulla')), FilledButton(onPressed: () { final v = double.tryParse(amount.text.replaceAll(',', '.')); if (desc.text.trim().isEmpty || v == null || v <= 0) return; if (existing != null) { existing.description = desc.text.trim(); existing.amount = v; existing.income = income; existing.category = cat; existing.account = account; existing.date = dateController.text.trim(); existing.note = note.text; store.save(); } else { store.add(Txn(id: DateTime.now().microsecondsSinceEpoch.toString(), date: dateController.text.trim(), description: desc.text.trim(), amount: v, income: income, category: cat, account: account, note: note.text)); } Navigator.pop(ctx); }, child: const Text('Salva'))]));
+
+  await showDialog<void>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, set) => AlertDialog(
+        title: Text(existing == null ? 'Nuovo movimento' : 'Modifica movimento'),
+        content: SizedBox(
+          width: 420,
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                TextField(controller: desc, decoration: const InputDecoration(labelText: 'Descrizione')),
+                const SizedBox(height: 10),
+                TextField(controller: amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Importo (€)')),
+                const SizedBox(height: 10),
+                SwitchListTile(value: income, onChanged: (v) => set(() => income = v), title: const Text('È un’entrata')),
+                DropdownButtonFormField<String>(
+                  initialValue: cat,
+                  decoration: const InputDecoration(labelText: 'Categoria'),
+                  items: store.categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                  onChanged: (v) { if (v != null) set(() => cat = v); },
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  initialValue: account,
+                  decoration: const InputDecoration(labelText: 'Conto'),
+                  items: store.accounts.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                  onChanged: (v) { if (v != null) set(() => account = v); },
+                ),
+                const SizedBox(height: 10),
+                TextField(controller: dateController, decoration: const InputDecoration(labelText: 'Data (AAAA-MM-GG)')),
+                const SizedBox(height: 10),
+                TextField(controller: note, decoration: const InputDecoration(labelText: 'Nota')),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          if (existing != null)
+            TextButton(
+              onPressed: () { store.remove(existing); Navigator.pop(ctx); },
+              child: const Text('Elimina', style: TextStyle(color: Colors.red)),
+            ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annulla')),
+          FilledButton(
+            onPressed: () {
+              final v = double.tryParse(amount.text.replaceAll(',', '.'));
+              if (desc.text.trim().isEmpty || v == null || v <= 0) return;
+              if (existing != null) {
+                existing.description = desc.text.trim();
+                existing.amount = v;
+                existing.income = income;
+                existing.category = cat;
+                existing.account = account;
+                existing.date = dateController.text.trim();
+                existing.note = note.text;
+                store.save();
+              } else {
+                store.add(Txn(id: DateTime.now().microsecondsSinceEpoch.toString(), date: dateController.text.trim(), description: desc.text.trim(), amount: v, income: income, category: cat, account: account, note: note.text));
+              }
+              Navigator.pop(ctx);
+            },
+            child: const Text('Salva'),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 Future<void> showBudget(BuildContext context, FamilyStore s) async { final amount = TextEditingController(); String c = s.categories.first; await showDialog<void>(context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, set) => AlertDialog(title: const Text('Nuovo budget'), content: Column(mainAxisSize: MainAxisSize.min, children: [DropdownButtonFormField<String>(initialValue: c, items: s.categories.map((x) => DropdownMenuItem(value: x, child: Text(x))).toList(), onChanged: (v) { if (v != null) set(() => c = v); }, decoration: const InputDecoration(labelText: 'Categoria')), const SizedBox(height: 10), TextField(controller: amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Limite mensile (€)'))]), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annulla')), FilledButton(onPressed: () { final v = double.tryParse(amount.text.replaceAll(',', '.')); if (v == null || v <= 0) return; s.budgets.removeWhere((b) => b.category == c); s.budgets.add(Budget(c, v)); s.save(); Navigator.pop(ctx); }, child: const Text('Salva'))]))); }

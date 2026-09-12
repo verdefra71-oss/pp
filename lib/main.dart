@@ -1,520 +1,115 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
-import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:fl_chart/fl_chart.dart';
 
-Future<void> main() async {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await initializeDateFormatting('it_IT');
-  final store = FinanceStore();
+  final store = FamilyStore();
   await store.load();
-  runApp(FamilyFinanceApp(store: store));
+  runApp(FamilyApp(store: store));
 }
 
-class Movement {
-  final String id;
-  final DateTime date;
-  final String description;
-  final double amount;
-  final bool income;
-  final String category;
-  final String account;
-
-  Movement({
-    required this.id,
-    required this.date,
-    required this.description,
-    required this.amount,
-    required this.income,
-    required this.category,
-    required this.account,
-  });
-
-  Map<String, dynamic> toJson() => {
-    'id': id, 'date': date.toIso8601String(), 'description': description,
-    'amount': amount, 'income': income, 'category': category, 'account': account,
-  };
-
-  factory Movement.fromJson(Map<String, dynamic> j) => Movement(
-    id: j['id'],
-    date: DateTime.parse(j['date']),
-    description: j['description'],
-    amount: (j['amount'] as num).toDouble(),
-    income: j['income'],
-    category: j['category'],
-    account: j['account'] ?? 'Conto corrente',
-  );
+class Txn {
+  String id;
+  String date;
+  String description;
+  double amount;
+  bool income;
+  String category;
+  String account;
+  String note;
+  Txn({required this.id, required this.date, required this.description, required this.amount, required this.income, required this.category, required this.account, this.note = ''});
+  Map<String, dynamic> toJson() => {'id': id, 'date': date, 'description': description, 'amount': amount, 'income': income, 'category': category, 'account': account, 'note': note};
+  factory Txn.fromJson(Map<String, dynamic> j) => Txn(id: j['id'], date: j['date'], description: j['description'], amount: (j['amount'] as num).toDouble(), income: j['income'] == true, category: j['category'] ?? 'Altro', account: j['account'] ?? 'Contanti', note: j['note'] ?? '');
 }
 
-class FinanceStore extends ChangeNotifier {
-  final List<Movement> movements = [];
-  final List<String> categories = [
-    'Stipendio','Extra','Alimentari','Casa','Bollette','Trasporti',
-    'Salute','Abbigliamento','Scuola','Svago','Vacanze','Altro'
-  ];
-  final List<String> accounts = ['Conto corrente','Carta','Contanti','Altro'];
-  double budget = 0;
-  DateTime selectedMonth = DateTime(DateTime.now().year, DateTime.now().month);
+class Budget {
+  String category;
+  double limit;
+  Budget(this.category, this.limit);
+  Map<String, dynamic> toJson() => {'category': category, 'limit': limit};
+  factory Budget.fromJson(Map<String, dynamic> j) => Budget(j['category'], (j['limit'] as num).toDouble());
+}
 
+class Recurring {
+  String name;
+  double amount;
+  String category;
+  int day;
+  Recurring(this.name, this.amount, this.category, this.day);
+  Map<String, dynamic> toJson() => {'name': name, 'amount': amount, 'category': category, 'day': day};
+  factory Recurring.fromJson(Map<String, dynamic> j) => Recurring(j['name'], (j['amount'] as num).toDouble(), j['category'], j['day'] ?? 1);
+}
+
+class FamilyStore extends ChangeNotifier {
+  final List<Txn> txns = [];
+  final List<Budget> budgets = [];
+  final List<Recurring> recurring = [];
+  final List<String> accounts = ['Banca', 'Carta', 'Contanti'];
+  final List<String> categories = ['Mutuo/affitto','Luce','Gas','Acqua','Telefono/Internet','Auto','Carburante','Assicurazione','Alimentari','Casa','Scuola','Vacanze','Regali','Tempo libero','Salute','Abbigliamento','Abbonamenti','Tasse','Spese impreviste','Altro'];
+  SharedPreferences? _prefs;
   Future<void> load() async {
-    final p = await SharedPreferences.getInstance();
-    final savedCategories = p.getStringList('categories');
-    if (savedCategories != null && savedCategories.isNotEmpty) { categories..clear()..addAll(savedCategories); }
-    final savedAccounts = p.getStringList('accounts');
-    if (savedAccounts != null && savedAccounts.isNotEmpty) { accounts..clear()..addAll(savedAccounts); }
-    budget = p.getDouble('budget') ?? 0;
-    final raw = p.getString('movements');
-    if (raw != null) {
-      movements.addAll((jsonDecode(raw) as List).map((e) => Movement.fromJson(e)));
-    }
+    _prefs = await SharedPreferences.getInstance();
+    final t = _prefs!.getString('txns'); if (t != null) txns.addAll((jsonDecode(t) as List).map((e) => Txn.fromJson(e)));
+    final b = _prefs!.getString('budgets'); if (b != null) budgets.addAll((jsonDecode(b) as List).map((e) => Budget.fromJson(e)));
+    final r = _prefs!.getString('recurring'); if (r != null) recurring.addAll((jsonDecode(r) as List).map((e) => Recurring.fromJson(e)));
   }
-
   Future<void> save() async {
-    final p = await SharedPreferences.getInstance();
-    await p.setString('movements', jsonEncode(movements.map((e) => e.toJson()).toList()));
-    await p.setStringList('categories', categories);
-    await p.setStringList('accounts', accounts);
-    await p.setDouble('budget', budget);
+    await _prefs?.setString('txns', jsonEncode(txns.map((e)=>e.toJson()).toList()));
+    await _prefs?.setString('budgets', jsonEncode(budgets.map((e)=>e.toJson()).toList()));
+    await _prefs?.setString('recurring', jsonEncode(recurring.map((e)=>e.toJson()).toList()));
     notifyListeners();
   }
-
-  List<Movement> get monthMovements => movements.where((m) =>
-    m.date.year == selectedMonth.year && m.date.month == selectedMonth.month).toList()
-    ..sort((a,b) => b.date.compareTo(a.date));
-
-  double get income => monthMovements.where((m)=>m.income).fold(0, (s,m)=>s+m.amount);
-  double get expense => monthMovements.where((m)=>!m.income).fold(0, (s,m)=>s+m.amount);
-  double get balance => income-expense;
-
-  void refresh() => notifyListeners();
-
-  Future<void> addMovement(Movement m) async {
-    movements.add(m);
-    await save();
-  }
-
-  Future<void> deleteMovement(String id) async {
-    movements.removeWhere((m)=>m.id==id);
-    await save();
-  }
+  void add(Txn t) { txns.add(t); save(); }
+  void remove(Txn t) { txns.remove(t); save(); }
+  double income(String ym) => txns.where((t)=>t.income && t.date.startsWith(ym)).fold(0,(s,t)=>s+t.amount);
+  double expense(String ym) => txns.where((t)=>!t.income && t.date.startsWith(ym)).fold(0,(s,t)=>s+t.amount);
+  double categoryExpense(String ym,String c)=>txns.where((t)=>!t.income&&t.date.startsWith(ym)&&t.category==c).fold(0,(s,t)=>s+t.amount);
 }
 
-class FamilyFinanceApp extends StatelessWidget {
-  final FinanceStore store;
-  const FamilyFinanceApp({super.key, required this.store});
-
-  @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: store,
-    builder: (_, __) => MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Contabilità Familiare',
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF5267B8)),
-        scaffoldBackgroundColor: const Color(0xFFF6F7FB),
-        cardTheme: const CardThemeData(
-          elevation: 0,
-          margin: EdgeInsets.zero,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(20))),
-        ),
-      ),
-      home: HomePage(store: store),
-    ),
-  );
+class FamilyApp extends StatelessWidget {
+  final FamilyStore store;
+  const FamilyApp({super.key, required this.store});
+  @override Widget build(BuildContext context) => AnimatedBuilder(animation: store, builder: (_,__) => MaterialApp(debugShowCheckedModeBanner:false, title:'Gestione Familiare', theme: ThemeData(useMaterial3:true, colorSchemeSeed: Colors.pink, scaffoldBackgroundColor: const Color(0xfffaf7f9), cardTheme: const CardThemeData(elevation:1, margin: EdgeInsets.all(8)), inputDecorationTheme: const InputDecorationTheme(border: OutlineInputBorder())), home: Home(store:store)));
 }
 
-class HomePage extends StatefulWidget {
-  final FinanceStore store;
-  const HomePage({super.key, required this.store});
-  @override State<HomePage> createState()=>_HomePageState();
-}
+String money(double v) => '€ ${v.toStringAsFixed(2).replaceAll('.', ',')}';
+String today() { final d=DateTime.now(); return '${d.year}-${d.month.toString().padLeft(2,'0')}-${d.day.toString().padLeft(2,'0')}'; }
+String monthLabel(DateTime d) => '${d.month.toString().padLeft(2,'0')}/${d.year}';
 
-class _HomePageState extends State<HomePage> {
+class Home extends StatefulWidget { final FamilyStore store; const Home({super.key,required this.store}); @override State<Home> createState()=>_HomeState(); }
+class _HomeState extends State<Home> {
   int index=0;
-  @override
-  Widget build(BuildContext context) {
-    final pages=[
-      Dashboard(store: widget.store),
-      MovementsPage(store: widget.store),
-      ReportPage(store: widget.store),
-      const MorePage(),
-    ];
-    return Scaffold(
-      body: SafeArea(child: pages[index]),
-      floatingActionButton: index==1 ? FloatingActionButton.extended(
-        onPressed: ()=>showAddMovement(context, widget.store),
-        icon: const Icon(Icons.add), label: const Text('Movimento'),
-      ):null,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex:index,
-        onDestinationSelected:(v)=>setState(()=>index=v),
-        destinations: const [
-          NavigationDestination(icon:Icon(Icons.home_outlined),selectedIcon:Icon(Icons.home),label:'Home'),
-          NavigationDestination(icon:Icon(Icons.swap_vert),label:'Movimenti'),
-          NavigationDestination(icon:Icon(Icons.bar_chart_outlined),label:'Resoconto'),
-          NavigationDestination(icon:Icon(Icons.more_horiz),label:'Altro'),
-        ],
-      ),
-    );
+  @override Widget build(BuildContext context) {
+    final pages=[Dashboard(store:widget.store),Movements(store:widget.store),Bills(store:widget.store),BudgetPage(store:widget.store),Reports(store:widget.store),MorePage(store:widget.store)];
+    return Scaffold(body:pages[index], bottomNavigationBar: NavigationBar(selectedIndex:index,onDestinationSelected:(i)=>setState(()=>index=i),destinations: const [NavigationDestination(icon:Icon(Icons.home_outlined),selectedIcon:Icon(Icons.home),label:'Home'),NavigationDestination(icon:Icon(Icons.swap_vert),label:'Movimenti'),NavigationDestination(icon:Icon(Icons.receipt_long_outlined),label:'Bollette'),NavigationDestination(icon:Icon(Icons.pie_chart_outline),label:'Budget'),NavigationDestination(icon:Icon(Icons.bar_chart),label:'Report'),NavigationDestination(icon:Icon(Icons.more_horiz),label:'Altro')]), floatingActionButton: (index==0||index==1)?FloatingActionButton.extended(onPressed:()=>showTxn(context,widget.store),icon:const Icon(Icons.add),label:const Text('Movimento')):null);
   }
 }
 
-String italianMonthYear(DateTime date) {
-  const months = [
-    'gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno',
-    'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre',
-  ];
-  return '${months[date.month - 1]} ${date.year}';
+class Dashboard extends StatelessWidget { final FamilyStore store; const Dashboard({super.key,required this.store});
+  @override Widget build(BuildContext context){ final now=DateTime.now(), ym='${now.year}-${now.month.toString().padLeft(2,'0')}'; final inc=store.income(ym), exp=store.expense(ym); final bal=inc-exp; return Scaffold(appBar:AppBar(title:const Text('Gestione Familiare'),centerTitle:false),body:ListView(padding:const EdgeInsets.all(12),children:[Text('Riepilogo ${monthLabel(now)}',style:Theme.of(context).textTheme.titleLarge),const SizedBox(height:8),Row(children:[metric('Entrate',money(inc),Colors.green,Icons.arrow_downward),metric('Spese',money(exp),Colors.red,Icons.arrow_upward)]),Row(children:[metric('Disponibile',money(bal),bal>=0?Colors.blue:Colors.red,Icons.account_balance_wallet),metric('Movimenti','${store.txns.where((t)=>t.date.startsWith(ym)).length}',Colors.orange,Icons.list_alt)]),Card(child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Spese per categoria',style:Theme.of(context).textTheme.titleMedium),const SizedBox(height:8),...store.categories.map((c){final v=store.categoryExpense(ym,c);if(v==0)return const SizedBox.shrink();final pct=exp==0?0:v/exp;return Padding(padding:const EdgeInsets.symmetric(vertical:5),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[Text(c),Text(money(v))]),LinearProgressIndicator(value:pct.clamp(0,1)),]));})])),),Card(child:ListTile(leading:const Icon(Icons.lightbulb_outline),title:const Text('Consiglio del mese'),subtitle:Text(bal>=0?'Hai un saldo positivo di ${money(bal)}. Controlla il budget per aumentare il risparmio.':'Le spese superano le entrate di ${money(-bal)}. Controlla soprattutto le categorie extra.')))]); }
 }
+Widget metric(String title,String value,Color color,IconData icon)=>Expanded(child:Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Icon(icon,color:color),Text(title),Text(value,style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold))]))));
 
-class Dashboard extends StatelessWidget {
-  final FinanceStore store;
-  const Dashboard({super.key,required this.store});
+class Movements extends StatefulWidget { final FamilyStore store; const Movements({super.key,required this.store}); @override State<Movements> createState()=>_MovementsState(); }
+class _MovementsState extends State<Movements>{ String filter='Tutti'; String search=''; @override Widget build(BuildContext context){ final list=widget.store.txns.where((t)=>(filter=='Tutti'||(filter=='Entrate'?t.income:!t.income))&&(search.isEmpty||t.description.toLowerCase().contains(search.toLowerCase())||t.category.toLowerCase().contains(search.toLowerCase()))).toList()..sort((a,b)=>b.date.compareTo(a.date)); return Scaffold(appBar:AppBar(title:const Text('Movimenti'),actions:[IconButton(onPressed:()=>showSearch(context,delegate:TxnSearch(widget.store)),icon:const Icon(Icons.search)),PopupMenuButton<String>(onSelected:(v)=>setState(()=>filter=v),itemBuilder:(_)=>const [PopupMenuItem(value:'Tutti',child:Text('Tutti')),PopupMenuItem(value:'Entrate',child:Text('Entrate')),PopupMenuItem(value:'Uscite',child:Text('Uscite'))])]),body:list.isEmpty?const Center(child:Text('Nessun movimento. Premi + per inserirne uno.')):ListView.builder(itemCount:list.length,itemBuilder:(c,i){final t=list[i];return Card(child:ListTile(leading:CircleAvatar(child:Icon(t.income?Icons.add:Icons.remove)),title:Text(t.description),subtitle:Text('${t.date} • ${t.category} • ${t.account}'),trailing:Text('${t.income?'+':'-'} ${money(t.amount)}',style:TextStyle(color:t.income?Colors.green:Colors.red,fontWeight:FontWeight.bold)),onTap:()=>showTxn(context,widget.store,existing:t)));}));}}
+class TxnSearch extends SearchDelegate<String>{final FamilyStore store;TxnSearch(this.store);@override List<Widget>?buildActions(c)=>[IconButton(onPressed:()=>query='',icon:const Icon(Icons.clear))];@override Widget?buildLeading(c)=>IconButton(onPressed:()=>close(c,''),icon:const Icon(Icons.arrow_back));@override Widget buildResults(c){final l=store.txns.where((t)=>t.description.toLowerCase().contains(query.toLowerCase())||t.category.toLowerCase().contains(query.toLowerCase())).toList();return ListView(children:l.map((t)=>ListTile(title:Text(t.description),subtitle:Text(t.category),trailing:Text(money(t.amount)))).toList());}@override Widget buildSuggestions(c)=>buildResults(c);}
 
-  @override
-  Widget build(BuildContext context) {
-    final fmt=NumberFormat.currency(locale:'it_IT',symbol:'€ ');
-    final month=italianMonthYear(store.selectedMonth);
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20,20,20,90),
-      children:[
-        Row(children:[
-          Expanded(child: Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-            const Text('La mia famiglia',style:TextStyle(fontSize:15,color:Colors.black54)),
-            Text(month[0].toUpperCase()+month.substring(1),style:const TextStyle(fontSize:27,fontWeight:FontWeight.w800)),
-          ])),
-          IconButton(onPressed:()=>_pickMonth(context),icon:const Icon(Icons.calendar_month_outlined))
-        ]),
-        const SizedBox(height:18),
-        Card(
-          color: const Color(0xFF5267B8),
-          child: Padding(padding:const EdgeInsets.all(22),child:Column(
-            crossAxisAlignment:CrossAxisAlignment.start,children:[
-              const Text('Disponibilità del mese',style:TextStyle(color:Colors.white70)),
-              const SizedBox(height:5),
-              Text(fmt.format(store.balance),style:const TextStyle(color:Colors.white,fontSize:34,fontWeight:FontWeight.w800)),
-              const SizedBox(height:20),
-              Row(children:[
-                Expanded(child:_mini('Entrate',fmt.format(store.income),Icons.arrow_downward)),
-                Expanded(child:_mini('Spese',fmt.format(store.expense),Icons.arrow_upward)),
-              ])
-            ]))
-        ),
-        const SizedBox(height:18),
-        Row(children:[
-          Expanded(child:_action(context,'Entrata',Icons.add_circle_outline, true)),
-          const SizedBox(width:12),
-          Expanded(child:_action(context,'Spesa',Icons.remove_circle_outline, false)),
-        ]),
-        const SizedBox(height:22),
-        const Text('Ultimi movimenti',style:TextStyle(fontSize:20,fontWeight:FontWeight.w800)),
-        const SizedBox(height:10),
-        if(store.monthMovements.isEmpty)
-          _empty()
-        else
-          ...store.monthMovements.take(5).map((m)=>MovementTile(m:m,store:store)),
-      ],
-    );
-  }
+class Bills extends StatelessWidget { final FamilyStore store; const Bills({super.key,required this.store}); @override Widget build(BuildContext context){return Scaffold(appBar:AppBar(title:const Text('Bollette e ricorrenti'),actions:[IconButton(onPressed:()=>showRecurring(context,store),icon:const Icon(Icons.add))]),body:ListView(padding:const EdgeInsets.all(8),children:[Card(child:const ListTile(leading:Icon(Icons.info_outline),title:Text('Spese ricorrenti'),subtitle:Text('Imposta importo e giorno di scadenza per mutuo, luce, gas, telefono, auto e altre spese.'))),...store.recurring.map((r)=>Card(child:ListTile(leading:const Icon(Icons.event_repeat),title:Text(r.name),subtitle:Text('${r.category} • giorno ${r.day}'),trailing:Text(money(r.amount)))))]);}}
 
-  Widget _mini(String t,String v,IconData i)=>Row(children:[
-    Icon(i,color:Colors.white70,size:18),const SizedBox(width:7),
-    Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-      Text(t,style:const TextStyle(color:Colors.white70,fontSize:12)),
-      Text(v,style:const TextStyle(color:Colors.white,fontWeight:FontWeight.w700))
-    ])
-  ]);
+class BudgetPage extends StatefulWidget{final FamilyStore store;const BudgetPage({super.key,required this.store});@override State<BudgetPage>createState()=>_BudgetPageState();}
+class _BudgetPageState extends State<BudgetPage>{@override Widget build(BuildContext context){final now=DateTime.now(),ym='${now.year}-${now.month.toString().padLeft(2,'0')}';return Scaffold(appBar:AppBar(title:const Text('Budget mensile'),actions:[IconButton(onPressed:()=>showBudget(context,widget.store),icon:const Icon(Icons.add))]),body:ListView(children:widget.store.budgets.map((b){final used=widget.store.categoryExpense(ym,b.category);final pct=b.limit==0?0:used/b.limit;return Card(child:ListTile(title:Text(b.category),subtitle:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const SizedBox(height:6),LinearProgressIndicator(value:pct.clamp(0,1)),const SizedBox(height:4),Text('${money(used)} di ${money(b.limit)}')]),trailing:Icon(pct<=1?Icons.check_circle:Icons.warning,color:pct<=1?Colors.green:Colors.red)));}).toList());}}
 
-  Widget _action(BuildContext c,String t,IconData i,bool income)=>OutlinedButton.icon(
-    onPressed:()=>showAddMovement(c,store,income:income),icon:Icon(i),label:Text(t),
-    style:OutlinedButton.styleFrom(padding:const EdgeInsets.symmetric(vertical:16))
-  );
+class Reports extends StatelessWidget{final FamilyStore store;const Reports({super.key,required this.store});@override Widget build(BuildContext context){final now=DateTime.now();return Scaffold(appBar:AppBar(title:const Text('Report')),body:ListView(padding:const EdgeInsets.all(12),children:[for(int i=0;i<6;i++)...reportMonth(store,DateTime(now.year,now.month-i,1))]);}}
+List<Widget> reportMonth(FamilyStore s,DateTime d){final ym='${d.year}-${d.month.toString().padLeft(2,'0')}',i=s.income(ym),e=s.expense(ym);return [Card(child:ListTile(title:Text(monthLabel(d)),subtitle:Text('Entrate ${money(i)} • Spese ${money(e)}'),trailing:Text(money(i-e),style:TextStyle(color:i>=e?Colors.green:Colors.red,fontWeight:FontWeight.bold))))];}
 
-  Widget _empty()=>const Card(child:Padding(padding:EdgeInsets.all(25),child:Center(child:Text('Nessun movimento questo mese.'))));
+class MorePage extends StatelessWidget{final FamilyStore store;const MorePage({super.key,required this.store});@override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:const Text('Altro')),body:ListView(children:[ListTile(leading:const Icon(Icons.account_balance),title:const Text('Conti'),subtitle:Text(store.accounts.join(' • ')),onTap:()=>showAccounts(context,store)),ListTile(leading:const Icon(Icons.sync),title:const Text('Sincronizzazione banca'),subtitle:const Text('Open Banking predisposto • importazione CSV disponibile'),onTap:()=>showBank(context,store)),ListTile(leading:const Icon(Icons.backup),title:const Text('Backup'),subtitle:const Text('Esporta i dati dell’app in formato JSON'),onTap:()=>showBackup(context,store)),ListTile(leading:const Icon(Icons.category),title:const Text('Categorie'),subtitle:Text('${store.categories.length} categorie disponibili')),ListTile(leading:const Icon(Icons.settings),title:const Text('Impostazioni'),onTap:()=>showAbout(context))]));}
 
-  void _pickMonth(BuildContext context) async {
-    final d=await showDatePicker(context:context,initialDate:store.selectedMonth,firstDate:DateTime(2020),lastDate:DateTime(2100));
-    if(d!=null){store.selectedMonth=DateTime(d.year,d.month);store.refresh();}
-  }
-}
+Future<void> showTxn(BuildContext context,FamilyStore store,{Txn? existing})async{final desc=TextEditingController(text:existing?.description??''),amount=TextEditingController(text:existing==null?'':existing.amount.toStringAsFixed(2)),note=TextEditingController(text:existing?.note??'');bool income=existing?.income??false;String cat=existing?.category??store.categories.first;String account=existing?.account??'Banca';String date=existing?.date??today();await showDialog(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,set)=>AlertDialog(title:Text(existing==null?'Nuovo movimento':'Modifica movimento'),content:SizedBox(width:420,child:SingleChildScrollView(child:Column(children:[TextField(controller:desc,decoration:const InputDecoration(labelText:'Descrizione')),const SizedBox(height:10),TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Importo (€)')),const SizedBox(height:10),SwitchListTile(value:income,onChanged:(v)=>set(()=>income=v),title:const Text('È un’entrata')),DropdownButtonFormField<String>(value:cat,decoration:const InputDecoration(labelText:'Categoria'),items:store.categories.map((c)=>DropdownMenuItem(value:c,child:Text(c))).toList(),onChanged:(v)=>set(()=>cat=v!)),const SizedBox(height:10),DropdownButtonFormField<String>(value:account,decoration:const InputDecoration(labelText:'Conto'),items:store.accounts.map((c)=>DropdownMenuItem(value:c,child:Text(c))).toList(),onChanged:(v)=>set(()=>account=v!)),const SizedBox(height:10),TextField(decoration:const InputDecoration(labelText:'Data (AAAA-MM-GG)'),controller:TextEditingController(text:date),onChanged:(v)=>date=v),const SizedBox(height:10),TextField(controller:note,decoration:const InputDecoration(labelText:'Nota'))])),),actions:[if(existing!=null)TextButton(onPressed:(){store.remove(existing);Navigator.pop(ctx);},child:const Text('Elimina',style:TextStyle(color:Colors.red))),TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Annulla')),FilledButton(onPressed:(){final v=double.tryParse(amount.text.replaceAll(',','.'));if(desc.text.trim().isEmpty||v==null||v<=0)return;if(existing!=null){existing.description=desc.text.trim();existing.amount=v;existing.income=income;existing.category=cat;existing.account=account;existing.date=date;existing.note=note.text;store.save();}else{store.add(Txn(id:DateTime.now().microsecondsSinceEpoch.toString(),date:date,description:desc.text.trim(),amount:v,income:income,category:cat,account:account,note:note.text));}Navigator.pop(ctx);},child:const Text('Salva'))])));}
 
-class MovementsPage extends StatelessWidget {
-  final FinanceStore store;
-  const MovementsPage({super.key,required this.store});
-  @override Widget build(BuildContext context)=>ListView(
-    padding:const EdgeInsets.fromLTRB(20,20,20,100),
-    children:[
-      const Text('Movimenti',style:TextStyle(fontSize:28,fontWeight:FontWeight.w800)),
-      const SizedBox(height:6),
-      Text(italianMonthYear(store.selectedMonth),style:const TextStyle(color:Colors.black54)),
-      const SizedBox(height:16),
-      ...store.monthMovements.map((m)=>Dismissible(
-        key:ValueKey(m.id),background:Container(decoration:BoxDecoration(color:Colors.redAccent,borderRadius:BorderRadius.circular(18)),alignment:Alignment.centerLeft,padding:const EdgeInsets.only(left:20),child:const Icon(Icons.delete,color:Colors.white)),
-        direction:DismissDirection.endToStart,
-        onDismissed:(_)=>store.deleteMovement(m.id),
-        child:MovementTile(m:m,store:store)
-      )),
-      if(store.monthMovements.isEmpty)_empty(),
-    ]
-  );
-  Widget _empty()=>const Card(child:Padding(padding:EdgeInsets.all(28),child:Center(child:Text('Nessun movimento registrato.'))));
-}
-
-class MovementTile extends StatelessWidget {
-  final Movement m; final FinanceStore store;
-  const MovementTile({super.key,required this.m,required this.store});
-  @override Widget build(BuildContext context){
-    final fmt=NumberFormat.currency(locale:'it_IT',symbol:'€ ');
-    return Card(margin:const EdgeInsets.only(bottom:9),child:ListTile(
-      leading:CircleAvatar(child:Icon(m.income?Icons.south_west:Icons.north_east)),
-      title:Text(m.description,style:const TextStyle(fontWeight:FontWeight.w700)),
-      subtitle:Text('${m.category} • ${DateFormat('dd/MM').format(m.date)} • ${m.account}'),
-      trailing:Text('${m.income?'+':'-'}${fmt.format(m.amount)}',style:TextStyle(fontWeight:FontWeight.w800,color:m.income?Colors.green.shade700:Colors.red.shade700)),
-    ));
-  }
-}
-
-class ReportPage extends StatelessWidget {
-  final FinanceStore store;
-  const ReportPage({super.key,required this.store});
-
-  @override
-  Widget build(BuildContext context) {
-    final fmt = NumberFormat.currency(locale:'it_IT',symbol:'€ ');
-    final data = <String,double>{};
-    for (final m in store.monthMovements) {
-      if (!m.income) data[m.category] = (data[m.category] ?? 0) + m.amount;
-    }
-    final sorted = data.entries.toList()
-      ..sort((a,b) => b.value.compareTo(a.value));
-
-    return ListView(
-      padding: const EdgeInsets.all(20),
-      children: [
-        const Text('Resoconto',style:TextStyle(fontSize:28,fontWeight:FontWeight.w800)),
-        const SizedBox(height:6),
-        Text(italianMonthYear(store.selectedMonth)),
-        const SizedBox(height:18),
-        Row(children:[
-          Expanded(child:_summary('Entrate',fmt.format(store.income),Icons.trending_down,Colors.green)),
-          const SizedBox(width:10),
-          Expanded(child:_summary('Spese',fmt.format(store.expense),Icons.trending_up,Colors.red)),
-        ]),
-        const SizedBox(height:18),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children:[
-                const Text('Andamento',style:TextStyle(fontSize:19,fontWeight:FontWeight.w800)),
-                const SizedBox(height:20),
-                SizedBox(
-                  height:210,
-                  child: BarChart(
-                    BarChartData(
-                      borderData: FlBorderData(show:false),
-                      gridData: const FlGridData(show:false),
-                      titlesData: FlTitlesData(
-                        rightTitles: const AxisTitles(sideTitles:SideTitles(showTitles:false)),
-                        topTitles: const AxisTitles(sideTitles:SideTitles(showTitles:false)),
-                        leftTitles: const AxisTitles(sideTitles:SideTitles(showTitles:true,reservedSize:42)),
-                        bottomTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles:true,
-                            getTitlesWidget:(v,meta) => Padding(
-                              padding: const EdgeInsets.only(top:8),
-                              child: Text(v == 0 ? 'Entrate' : 'Spese'),
-                            ),
-                          ),
-                        ),
-                      ),
-                      barGroups:[
-                        BarChartGroupData(x:0,barRods:[BarChartRodData(toY:store.income,width:35,borderRadius:BorderRadius.circular(5))]),
-                        BarChartGroupData(x:1,barRods:[BarChartRodData(toY:store.expense,width:35,borderRadius:BorderRadius.circular(5))]),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height:18),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children:[
-                const Text('Spese per categoria',style:TextStyle(fontSize:19,fontWeight:FontWeight.w800)),
-                const SizedBox(height:12),
-                if (sorted.isEmpty)
-                  const Text('Nessuna spesa nel mese.')
-                else
-                  ...sorted.take(8).map((e)=>Padding(
-                    padding: const EdgeInsets.symmetric(vertical:6),
-                    child: Row(children:[
-                      Expanded(child:Text(e.key)),
-                      Text(fmt.format(e.value),style:const TextStyle(fontWeight:FontWeight.w700)),
-                    ]),
-                  )),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _summary(String t,String v,IconData i,Color c) => Card(
-    child: Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment:CrossAxisAlignment.start,
-        children:[
-          Icon(i,color:c),
-          const SizedBox(height:8),
-          Text(t,style:const TextStyle(color:Colors.black54)),
-          Text(v,style:const TextStyle(fontSize:18,fontWeight:FontWeight.w800)),
-        ],
-      ),
-    ),
-  );
-}
-
-class MorePage extends StatelessWidget {
-  const MorePage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final store = context.findAncestorWidgetOfExactType<HomePage>()!.store;
-    return ListView(padding: const EdgeInsets.all(20), children: [
-      const Text('Altro', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
-      const SizedBox(height: 18),
-      Card(child: Column(children: [
-        _item(context, store, Icons.category_outlined, 'Categorie', 'Gestisci e seleziona le categorie', const CategoryPagePlaceholder()),
-        const Divider(height: 1),
-        _item(context, store, Icons.account_balance_outlined, 'Conti e carte', 'Gestisci conti, carte e contanti', AccountsPage(store: store)),
-        const Divider(height: 1),
-        _item(context, store, Icons.repeat, 'Movimenti ricorrenti', 'Gestisci le spese e le entrate ricorrenti', RecurringPage(store: store)),
-        const Divider(height: 1),
-        _item(context, store, Icons.savings_outlined, 'Budget', 'Imposta e controlla il limite mensile', BudgetPage(store: store)),
-        const Divider(height: 1),
-        _item(context, store, Icons.backup_outlined, 'Backup e ripristino', 'Esporta o importa i dati dell’app', BackupPage(store: store)),
-      ])),
-    ]);
-  }
-
-  Widget _item(BuildContext context, FinanceStore store, IconData icon, String title, String subtitle, Widget page) =>
-      ListTile(
-        leading: Icon(icon), title: Text(title), subtitle: Text(subtitle), trailing: const Icon(Icons.chevron_right),
-        onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => page is CategoryPagePlaceholder ? CategoryPage(store: store) : page)),
-      );
-}
-
-class CategoryPagePlaceholder extends StatelessWidget {
-  const CategoryPagePlaceholder({super.key});
-  @override Widget build(BuildContext context) => const SizedBox.shrink();
-}
-
-class AccountsPage extends StatefulWidget {
-  final FinanceStore store;
-  const AccountsPage({super.key, required this.store});
-  @override State<AccountsPage> createState() => _AccountsPageState();
-}
-class _AccountsPageState extends State<AccountsPage> {
-  late FinanceStore store;
-  @override void initState() { super.initState(); store = widget.store; }
-  Future<void> add() async {
-    final c = TextEditingController();
-    final v = await showDialog<String>(context: context, builder: (ctx) => AlertDialog(title: const Text('Nuovo conto / carta'), content: TextField(controller: c, autofocus: true, decoration: const InputDecoration(labelText: 'Nome')), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annulla')), FilledButton(onPressed: () => Navigator.pop(ctx, c.text.trim()), child: const Text('Aggiungi'))]));
-    if (v != null && v.isNotEmpty && !store.accounts.contains(v)) { setState(() => store.accounts.add(v)); await store.save(); }
-  }
-  @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('Conti e carte')), floatingActionButton: FloatingActionButton.extended(onPressed: add, icon: const Icon(Icons.add), label: const Text('Aggiungi')), body: ListView.separated(padding: const EdgeInsets.all(16), itemCount: store.accounts.length, separatorBuilder: (_,__) => const SizedBox(height: 8), itemBuilder: (_, i) => Card(child: ListTile(leading: const Icon(Icons.account_balance_wallet_outlined), title: Text(store.accounts[i]), trailing: IconButton(icon: const Icon(Icons.delete_outline), onPressed: () async { if (store.accounts.length <= 1) return; setState(() => store.accounts.removeAt(i)); await store.save(); }))));
-}
-
-class RecurringPage extends StatefulWidget {
-  final FinanceStore store;
-  const RecurringPage({super.key, required this.store});
-  @override State<RecurringPage> createState() => _RecurringPageState();
-}
-class _RecurringPageState extends State<RecurringPage> {
-  final List<Map<String,String>> items = [];
-  late FinanceStore store;
-  @override void initState() { super.initState(); store = widget.store; }
-  Future<void> add() async {
-    final d = TextEditingController(), a = TextEditingController();
-    final result = await showDialog<List<String>>(context: context, builder: (ctx) => AlertDialog(title: const Text('Nuovo movimento ricorrente'), content: Column(mainAxisSize: MainAxisSize.min, children: [TextField(controller: d, decoration: const InputDecoration(labelText: 'Descrizione')), TextField(controller: a, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Importo mensile'))]), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annulla')), FilledButton(onPressed: () => Navigator.pop(ctx, [d.text.trim(), a.text.trim()]), child: const Text('Salva'))]));
-    if (result != null && result[0].isNotEmpty && double.tryParse(result[1].replaceAll(',', '.')) != null) setState(() => items.add({'description': result[0], 'amount': result[1]}));
-  }
-  @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('Movimenti ricorrenti')), floatingActionButton: FloatingActionButton.extended(onPressed: add, icon: const Icon(Icons.add), label: const Text('Aggiungi')), body: items.isEmpty ? const Center(child: Text('Nessun movimento ricorrente')) : ListView.separated(padding: const EdgeInsets.all(16), itemCount: items.length, separatorBuilder: (_,__) => const SizedBox(height: 8), itemBuilder: (_,i) => Card(child: ListTile(leading: const Icon(Icons.repeat), title: Text(items[i]['description']!), subtitle: Text('€ ${items[i]['amount']}'), trailing: IconButton(icon: const Icon(Icons.delete_outline), onPressed: () => setState(() => items.removeAt(i))))));
-}
-
-class BudgetPage extends StatefulWidget { final FinanceStore store; const BudgetPage({super.key, required this.store}); @override State<BudgetPage> createState() => _BudgetPageState(); }
-class _BudgetPageState extends State<BudgetPage> {
-  late FinanceStore store; final c = TextEditingController();
-  @override void initState() { super.initState(); store = widget.store; c.text = store.budget > 0 ? store.budget.toStringAsFixed(2) : ''; }
-  @override Widget build(BuildContext context) { final remaining = store.budget - store.expense; return Scaffold(appBar: AppBar(title: const Text('Budget')), body: ListView(padding: const EdgeInsets.all(20), children: [const Text('Budget mensile', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)), const SizedBox(height: 15), TextField(controller: c, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Limite di spesa', prefixText: '€ ', border: OutlineInputBorder())), const SizedBox(height: 15), FilledButton.icon(onPressed: () async { final v = double.tryParse(c.text.replaceAll(',', '.')) ?? 0; store.budget = v; await store.save(); if (mounted) setState(() {}); }, icon: const Icon(Icons.save), label: const Text('Salva budget')), if (store.budget > 0) ...[const SizedBox(height: 25), Card(child: ListTile(title: const Text('Disponibile'), subtitle: Text(remaining >= 0 ? 'Ancora disponibile questo mese' : 'Budget superato'), trailing: Text('€ ${remaining.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.w800))))]]); }
-}
-
-class BackupPage extends StatefulWidget { final FinanceStore store; const BackupPage({super.key, required this.store}); @override State<BackupPage> createState() => _BackupPageState(); }
-class _BackupPageState extends State<BackupPage> {
-  late FinanceStore store;
-  @override void initState() { super.initState(); store = widget.store; }
-  String exportData() => jsonEncode({'movements': store.movements.map((m) => m.toJson()).toList(), 'categories': store.categories, 'accounts': store.accounts, 'budget': store.budget});
-  Future<void> importData() async { final c = TextEditingController(); final raw = await showDialog<String>(context: context, builder: (ctx) => AlertDialog(title: const Text('Ripristina backup'), content: TextField(controller: c, maxLines: 8, decoration: const InputDecoration(hintText: 'Incolla qui il backup JSON')), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annulla')), FilledButton(onPressed: () => Navigator.pop(ctx, c.text.trim()), child: const Text('Ripristina'))])); if (raw == null || raw.isEmpty) return; try { final j = jsonDecode(raw) as Map<String,dynamic>; store.movements..clear()..addAll((j['movements'] as List).map((e) => Movement.fromJson(Map<String,dynamic>.from(e)))); store.categories..clear()..addAll(List<String>.from(j['categories'] ?? store.categories)); store.accounts..clear()..addAll(List<String>.from(j['accounts'] ?? store.accounts)); store.budget = (j['budget'] as num?)?.toDouble() ?? 0; await store.save(); if (mounted) { setState(() {}); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Backup ripristinato'))); } } catch (_) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Backup non valido'))); } }
-  @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('Backup e ripristino')), body: ListView(padding: const EdgeInsets.all(20), children: [const Text('Backup dati', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)), const SizedBox(height: 10), const Text('Puoi copiare il backup e conservarlo. Per ripristinarlo, incolla il testo generato.'), const SizedBox(height: 20), FilledButton.icon(onPressed: () async { await showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('Backup'), content: SelectableText(exportData()), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Chiudi'))])); }, icon: const Icon(Icons.copy), label: const Text('Esporta backup')), const SizedBox(height: 12), OutlinedButton.icon(onPressed: importData, icon: const Icon(Icons.restore), label: const Text('Ripristina backup'))]));
-}
-
-class CategoryPage extends StatefulWidget {
-  final FinanceStore store;
-  const CategoryPage({super.key, required this.store});
-  @override State<CategoryPage> createState()=>_CategoryPageState();
-}
-
-class _CategoryPageState extends State<CategoryPage> {
-  String? selected;
-  Future<void> _addCategory() async {
-    final controller=TextEditingController();
-    final value=await showDialog<String>(context:context,builder:(ctx)=>AlertDialog(title:const Text('Nuova categoria'),content:TextField(controller:controller,autofocus:true,decoration:const InputDecoration(labelText:'Nome categoria')),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Annulla')),FilledButton(onPressed:()=>Navigator.pop(ctx,controller.text.trim()),child:const Text('Aggiungi'))]));
-    if(value!=null&&value.isNotEmpty&&!widget.store.categories.contains(value)){setState(()=>widget.store.categories.add(value));await widget.store.save();}
-  }
-  @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:const Text('Categorie')),floatingActionButton:FloatingActionButton.extended(onPressed:_addCategory,icon:const Icon(Icons.add),label:const Text('Nuova categoria')),body:ListView.builder(padding:const EdgeInsets.fromLTRB(16,12,16,100),itemCount:widget.store.categories.length,itemBuilder:(context,index){final category=widget.store.categories[index];final isSelected=selected==category;return Card(margin:const EdgeInsets.only(bottom:8),child:ListTile(leading:Icon(isSelected?Icons.check_circle:Icons.category_outlined),title:Text(category),trailing:isSelected?const Text('Selezionata'):const Icon(Icons.chevron_right),selected:isSelected,onTap:()=>setState(()=>selected=category)));}));
-}
-
-Future<void> showAddMovement(BuildContext context, FinanceStore store,{bool? income}) async {
-  final desc=TextEditingController();
-  final amount=TextEditingController();
-  bool isIncome=income??false;
-  String category=store.categories.first;
-  String account=store.accounts.first;
-  await showModalBottomSheet(context:context,isScrollControlled:true,showDragHandle:true,builder:(ctx)=>StatefulBuilder(builder:(ctx,setState)=>Padding(
-    padding:EdgeInsets.only(left:20,right:20,bottom:MediaQuery.of(ctx).viewInsets.bottom+20,top:5),
-    child:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.start,children:[
-      Text(isIncome?'Nuova entrata':'Nuova spesa',style:const TextStyle(fontSize:25,fontWeight:FontWeight.w800)),
-      const SizedBox(height:15),
-      SegmentedButton<bool>(segments:const [ButtonSegment(value:false,label:Text('Spesa'),icon:Icon(Icons.remove)),ButtonSegment(value:true,label:Text('Entrata'),icon:Icon(Icons.add))],selected:{isIncome},onSelectionChanged:(s)=>setState(()=>isIncome=s.first)),
-      const SizedBox(height:12),
-      TextField(controller:desc,decoration:const InputDecoration(labelText:'Descrizione',prefixIcon:Icon(Icons.edit_outlined))),
-      const SizedBox(height:10),
-      TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Importo',prefixIcon:Icon(Icons.euro))),
-      const SizedBox(height:10),
-      DropdownButtonFormField<String>(initialValue:category,decoration:const InputDecoration(labelText:'Categoria'),items:store.categories.map((e)=>DropdownMenuItem(value:e,child:Text(e))).toList(),onChanged:(v)=>setState(()=>category=v!)),
-      const SizedBox(height:10),
-      DropdownButtonFormField<String>(initialValue:account,decoration:const InputDecoration(labelText:'Conto / carta'),items:store.accounts.map((e)=>DropdownMenuItem(value:e,child:Text(e))).toList(),onChanged:(v)=>setState(()=>account=v!)),
-      const SizedBox(height:18),
-      SizedBox(width:double.infinity,child:FilledButton.icon(
-        onPressed:() async {
-          final value=double.tryParse(amount.text.replaceAll(',','.'));
-          if(desc.text.trim().isEmpty||value==null||value<=0)return;
-          await store.addMovement(Movement(id:DateTime.now().microsecondsSinceEpoch.toString(),date:DateTime.now(),description:desc.text.trim(),amount:value,income:isIncome,category:category,account:account));
-          if(ctx.mounted)Navigator.pop(ctx);
-        },icon:const Icon(Icons.check),label:const Padding(padding:EdgeInsets.symmetric(vertical:14),child:Text('Salva movimento'))
-      ))
-    ]))
-  )));
-}
+Future<void> showBudget(BuildContext context,FamilyStore s)async{final amount=TextEditingController();String c=s.categories.first;await showDialog(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,set)=>AlertDialog(title:const Text('Nuovo budget'),content:Column(mainAxisSize:MainAxisSize.min,children:[DropdownButtonFormField<String>(value:c,items:s.categories.map((x)=>DropdownMenuItem(value:x,child:Text(x))).toList(),onChanged:(v)=>set(()=>c=v!),decoration:const InputDecoration(labelText:'Categoria')),const SizedBox(height:10),TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Limite mensile (€)'))]),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Annulla')),FilledButton(onPressed:(){final v=double.tryParse(amount.text.replaceAll(',','.'));if(v==null||v<=0)return;s.budgets.removeWhere((b)=>b.category==c);s.budgets.add(Budget(c,v));s.save();Navigator.pop(ctx);},child:const Text('Salva'))])));}
+Future<void> showRecurring(BuildContext context,FamilyStore s)async{final n=TextEditingController(),a=TextEditingController();String c=s.categories.first;int day=1;await showDialog(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,set)=>AlertDialog(title:const Text('Spesa ricorrente'),content:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:n,decoration:const InputDecoration(labelText:'Nome')),TextField(controller:a,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'Importo')),DropdownButtonFormField<String>(value:c,items:s.categories.map((x)=>DropdownMenuItem(value:x,child:Text(x))).toList(),onChanged:(v)=>set(()=>c=v!),decoration:const InputDecoration(labelText:'Categoria')),TextField(keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'Giorno del mese'),onChanged:(v)=>day=int.tryParse(v)??1)]),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Annulla')),FilledButton(onPressed:(){final v=double.tryParse(a.text.replaceAll(',','.'));if(n.text.isEmpty||v==null)return;s.recurring.add(Recurring(n.text,v,c,day.clamp(1,31)));s.save();Navigator.pop(ctx);},child:const Text('Salva'))])));}
+Future<void> showAccounts(BuildContext context,FamilyStore s)async{await showDialog(context:context,builder:(ctx)=>AlertDialog(title:const Text('Conti'),content:Column(mainAxisSize:MainAxisSize.min,children:s.accounts.map((a)=>ListTile(leading:Icon(a=='Contanti'?Icons.payments:Icons.account_balance),title:Text(a))).toList()),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Chiudi'))]));}
+Future<void> showBank(BuildContext context,FamilyStore s)async{await showDialog(context:context,builder:(ctx)=>AlertDialog(title:const Text('Sincronizzazione banca'),content:const Text('La prima versione è predisposta per Open Banking e per l’importazione dei movimenti. Il collegamento diretto richiede un provider Open Banking e l’autorizzazione della banca. Per sicurezza l’app non memorizza password o PIN bancari.\n\nIn questa versione puoi continuare a registrare i movimenti manualmente; la sincronizzazione automatica sarà collegata a un provider nella fase successiva.'),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Chiudi'))]));}
+Future<void> showBackup(BuildContext context,FamilyStore s)async{final data=jsonEncode({'version':1,'exportedAt':DateTime.now().toIso8601String(),'transactions':s.txns.map((e)=>e.toJson()).toList(),'budgets':s.budgets.map((e)=>e.toJson()).toList(),'recurring':s.recurring.map((e)=>e.toJson()).toList()});await showDialog(context:context,builder:(ctx)=>AlertDialog(title:const Text('Backup JSON'),content:SizedBox(width:500,height:300,child:SingleChildScrollView(child:SelectableText(data))),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Chiudi'))]));}
+Future<void> showAbout(BuildContext context)async{await showDialog(context:context,builder:(ctx)=>AlertDialog(title:const Text('Gestione Familiare'),content:const Text('Versione 1.0.0\nBilancio familiare, budget, bollette, contanti e conti bancari.\n\nProgettata senza intl per evitare problemi di inizializzazione della localizzazione.'),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('OK'))]));}

@@ -382,18 +382,84 @@ class MorePage extends StatelessWidget {
   @override Widget build(BuildContext context)=>ListView(padding:const EdgeInsets.all(20),children:[
     const Text('Altro',style:TextStyle(fontSize:28,fontWeight:FontWeight.w800)),
     const SizedBox(height:18),
-    const Card(child:Column(children:[
-      ListTile(leading:Icon(Icons.category_outlined),title:Text('Categorie'),subtitle:Text('Personalizza le categorie')),
-      Divider(height:1),
-      ListTile(leading:Icon(Icons.account_balance_outlined),title:Text('Conti e carte'),subtitle:Text('Gestisci dove si trovano i soldi')),
-      Divider(height:1),
-      ListTile(leading:Icon(Icons.repeat),title:Text('Movimenti ricorrenti'),subtitle:Text('Prepara le spese mensili')),
-      Divider(height:1),
-      ListTile(leading:Icon(Icons.savings_outlined),title:Text('Budget'),subtitle:Text('Imposta limiti di spesa')),
-      Divider(height:1),
-      ListTile(leading:Icon(Icons.backup_outlined),title:Text('Backup e ripristino'),subtitle:Text('Funzione prevista nella prossima versione')),
+    Card(child:Column(children:[
+      ListTile(
+        leading:const Icon(Icons.category_outlined),
+        title:const Text('Categorie'),
+        subtitle:const Text('Seleziona e gestisci le categorie'),
+        trailing:const Icon(Icons.chevron_right),
+        onTap:()=>Navigator.of(context).push(MaterialPageRoute(
+          builder:(_)=>CategoryPage(store: context.findAncestorWidgetOfExactType<HomePage>()!.store),
+        )),
+      ),
+      const Divider(height:1),
+      const ListTile(leading:Icon(Icons.account_balance_outlined),title:Text('Conti e carte'),subtitle:Text('Gestisci dove si trovano i soldi'),trailing:Icon(Icons.chevron_right)),
+      const Divider(height:1),
+      const ListTile(leading:Icon(Icons.repeat),title:Text('Movimenti ricorrenti'),subtitle:Text('Prepara le spese mensili'),trailing:Icon(Icons.chevron_right)),
+      const Divider(height:1),
+      const ListTile(leading:Icon(Icons.savings_outlined),title:Text('Budget'),subtitle:Text('Imposta limiti di spesa'),trailing:Icon(Icons.chevron_right)),
+      const Divider(height:1),
+      const ListTile(leading:Icon(Icons.backup_outlined),title:Text('Backup e ripristino'),subtitle:Text('Funzione prevista nella prossima versione'),trailing:Icon(Icons.chevron_right)),
     ]))
   ]);
+}
+
+class CategoryPage extends StatefulWidget {
+  final FinanceStore store;
+  const CategoryPage({super.key, required this.store});
+
+  @override
+  State<CategoryPage> createState()=>_CategoryPageState();
+}
+
+class _CategoryPageState extends State<CategoryPage> {
+  String? selected;
+
+  Future<void> _addCategory() async {
+    final controller=TextEditingController();
+    final value=await showDialog<String>(
+      context:context,
+      builder:(ctx)=>AlertDialog(
+        title:const Text('Nuova categoria'),
+        content:TextField(controller:controller,autofocus:true,decoration:const InputDecoration(labelText:'Nome categoria')),
+        actions:[
+          TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Annulla')),
+          FilledButton(onPressed:()=>Navigator.pop(ctx,controller.text.trim()),child:const Text('Aggiungi')),
+        ],
+      ),
+    );
+    if(value!=null && value.isNotEmpty && !widget.store.categories.contains(value)){
+      setState(()=>widget.store.categories.add(value));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context)=>Scaffold(
+    appBar:AppBar(title:const Text('Categorie')),
+    floatingActionButton:FloatingActionButton.extended(
+      onPressed:_addCategory,
+      icon:const Icon(Icons.add),
+      label:const Text('Nuova categoria'),
+    ),
+    body:ListView.builder(
+      padding:const EdgeInsets.fromLTRB(16,12,16,100),
+      itemCount:widget.store.categories.length,
+      itemBuilder:(context,index){
+        final category=widget.store.categories[index];
+        final isSelected=selected==category;
+        return Card(
+          margin:const EdgeInsets.only(bottom:8),
+          child:ListTile(
+            leading:Icon(isSelected?Icons.check_circle:Icons.category_outlined),
+            title:Text(category),
+            trailing:isSelected?const Text('Selezionata'):const Icon(Icons.chevron_right),
+            selected:isSelected,
+            onTap:()=>setState(()=>selected=category),
+          ),
+        );
+      },
+    ),
+  );
 }
 
 Future<void> showAddMovement(BuildContext context, FinanceStore store,{bool? income}) async {

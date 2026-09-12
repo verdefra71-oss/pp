@@ -55,10 +55,16 @@ class FinanceStore extends ChangeNotifier {
     'Salute','Abbigliamento','Scuola','Svago','Vacanze','Altro'
   ];
   final List<String> accounts = ['Conto corrente','Carta','Contanti','Altro'];
+  double budget = 0;
   DateTime selectedMonth = DateTime(DateTime.now().year, DateTime.now().month);
 
   Future<void> load() async {
     final p = await SharedPreferences.getInstance();
+    final savedCategories = p.getStringList('categories');
+    if (savedCategories != null && savedCategories.isNotEmpty) { categories..clear()..addAll(savedCategories); }
+    final savedAccounts = p.getStringList('accounts');
+    if (savedAccounts != null && savedAccounts.isNotEmpty) { accounts..clear()..addAll(savedAccounts); }
+    budget = p.getDouble('budget') ?? 0;
     final raw = p.getString('movements');
     if (raw != null) {
       movements.addAll((jsonDecode(raw) as List).map((e) => Movement.fromJson(e)));
@@ -68,6 +74,9 @@ class FinanceStore extends ChangeNotifier {
   Future<void> save() async {
     final p = await SharedPreferences.getInstance();
     await p.setString('movements', jsonEncode(movements.map((e) => e.toJson()).toList()));
+    await p.setStringList('categories', categories);
+    await p.setStringList('accounts', accounts);
+    await p.setDouble('budget', budget);
     notifyListeners();
   }
 
@@ -379,87 +388,102 @@ class ReportPage extends StatelessWidget {
 
 class MorePage extends StatelessWidget {
   const MorePage({super.key});
-  @override Widget build(BuildContext context)=>ListView(padding:const EdgeInsets.all(20),children:[
-    const Text('Altro',style:TextStyle(fontSize:28,fontWeight:FontWeight.w800)),
-    const SizedBox(height:18),
-    Card(child:Column(children:[
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.findAncestorWidgetOfExactType<HomePage>()!.store;
+    return ListView(padding: const EdgeInsets.all(20), children: [
+      const Text('Altro', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
+      const SizedBox(height: 18),
+      Card(child: Column(children: [
+        _item(context, store, Icons.category_outlined, 'Categorie', 'Gestisci e seleziona le categorie', const CategoryPagePlaceholder()),
+        const Divider(height: 1),
+        _item(context, store, Icons.account_balance_outlined, 'Conti e carte', 'Gestisci conti, carte e contanti', AccountsPage(store: store)),
+        const Divider(height: 1),
+        _item(context, store, Icons.repeat, 'Movimenti ricorrenti', 'Gestisci le spese e le entrate ricorrenti', RecurringPage(store: store)),
+        const Divider(height: 1),
+        _item(context, store, Icons.savings_outlined, 'Budget', 'Imposta e controlla il limite mensile', BudgetPage(store: store)),
+        const Divider(height: 1),
+        _item(context, store, Icons.backup_outlined, 'Backup e ripristino', 'Esporta o importa i dati dell’app', BackupPage(store: store)),
+      ])),
+    ]);
+  }
+
+  Widget _item(BuildContext context, FinanceStore store, IconData icon, String title, String subtitle, Widget page) =>
       ListTile(
-        leading:const Icon(Icons.category_outlined),
-        title:const Text('Categorie'),
-        subtitle:const Text('Seleziona e gestisci le categorie'),
-        trailing:const Icon(Icons.chevron_right),
-        onTap:()=>Navigator.of(context).push(MaterialPageRoute(
-          builder:(_)=>CategoryPage(store: context.findAncestorWidgetOfExactType<HomePage>()!.store),
-        )),
-      ),
-      const Divider(height:1),
-      const ListTile(leading:Icon(Icons.account_balance_outlined),title:Text('Conti e carte'),subtitle:Text('Gestisci dove si trovano i soldi'),trailing:Icon(Icons.chevron_right)),
-      const Divider(height:1),
-      const ListTile(leading:Icon(Icons.repeat),title:Text('Movimenti ricorrenti'),subtitle:Text('Prepara le spese mensili'),trailing:Icon(Icons.chevron_right)),
-      const Divider(height:1),
-      const ListTile(leading:Icon(Icons.savings_outlined),title:Text('Budget'),subtitle:Text('Imposta limiti di spesa'),trailing:Icon(Icons.chevron_right)),
-      const Divider(height:1),
-      const ListTile(leading:Icon(Icons.backup_outlined),title:Text('Backup e ripristino'),subtitle:Text('Funzione prevista nella prossima versione'),trailing:Icon(Icons.chevron_right)),
-    ]))
-  ]);
+        leading: Icon(icon), title: Text(title), subtitle: Text(subtitle), trailing: const Icon(Icons.chevron_right),
+        onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => page is CategoryPagePlaceholder ? CategoryPage(store: store) : page)),
+      );
+}
+
+class CategoryPagePlaceholder extends StatelessWidget {
+  const CategoryPagePlaceholder({super.key});
+  @override Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+class AccountsPage extends StatefulWidget {
+  final FinanceStore store;
+  const AccountsPage({super.key, required this.store});
+  @override State<AccountsPage> createState() => _AccountsPageState();
+}
+class _AccountsPageState extends State<AccountsPage> {
+  late FinanceStore store;
+  @override void initState() { super.initState(); store = widget.store; }
+  Future<void> add() async {
+    final c = TextEditingController();
+    final v = await showDialog<String>(context: context, builder: (ctx) => AlertDialog(title: const Text('Nuovo conto / carta'), content: TextField(controller: c, autofocus: true, decoration: const InputDecoration(labelText: 'Nome')), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annulla')), FilledButton(onPressed: () => Navigator.pop(ctx, c.text.trim()), child: const Text('Aggiungi'))]));
+    if (v != null && v.isNotEmpty && !store.accounts.contains(v)) { setState(() => store.accounts.add(v)); await store.save(); }
+  }
+  @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('Conti e carte')), floatingActionButton: FloatingActionButton.extended(onPressed: add, icon: const Icon(Icons.add), label: const Text('Aggiungi')), body: ListView.separated(padding: const EdgeInsets.all(16), itemCount: store.accounts.length, separatorBuilder: (_,__) => const SizedBox(height: 8), itemBuilder: (_, i) => Card(child: ListTile(leading: const Icon(Icons.account_balance_wallet_outlined), title: Text(store.accounts[i]), trailing: IconButton(icon: const Icon(Icons.delete_outline), onPressed: () async { if (store.accounts.length <= 1) return; setState(() => store.accounts.removeAt(i)); await store.save(); }))));
+}
+
+class RecurringPage extends StatefulWidget {
+  final FinanceStore store;
+  const RecurringPage({super.key, required this.store});
+  @override State<RecurringPage> createState() => _RecurringPageState();
+}
+class _RecurringPageState extends State<RecurringPage> {
+  final List<Map<String,String>> items = [];
+  late FinanceStore store;
+  @override void initState() { super.initState(); store = widget.store; }
+  Future<void> add() async {
+    final d = TextEditingController(), a = TextEditingController();
+    final result = await showDialog<List<String>>(context: context, builder: (ctx) => AlertDialog(title: const Text('Nuovo movimento ricorrente'), content: Column(mainAxisSize: MainAxisSize.min, children: [TextField(controller: d, decoration: const InputDecoration(labelText: 'Descrizione')), TextField(controller: a, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Importo mensile'))]), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annulla')), FilledButton(onPressed: () => Navigator.pop(ctx, [d.text.trim(), a.text.trim()]), child: const Text('Salva'))]));
+    if (result != null && result[0].isNotEmpty && double.tryParse(result[1].replaceAll(',', '.')) != null) setState(() => items.add({'description': result[0], 'amount': result[1]}));
+  }
+  @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('Movimenti ricorrenti')), floatingActionButton: FloatingActionButton.extended(onPressed: add, icon: const Icon(Icons.add), label: const Text('Aggiungi')), body: items.isEmpty ? const Center(child: Text('Nessun movimento ricorrente')) : ListView.separated(padding: const EdgeInsets.all(16), itemCount: items.length, separatorBuilder: (_,__) => const SizedBox(height: 8), itemBuilder: (_,i) => Card(child: ListTile(leading: const Icon(Icons.repeat), title: Text(items[i]['description']!), subtitle: Text('€ ${items[i]['amount']}'), trailing: IconButton(icon: const Icon(Icons.delete_outline), onPressed: () => setState(() => items.removeAt(i))))));
+}
+
+class BudgetPage extends StatefulWidget { final FinanceStore store; const BudgetPage({super.key, required this.store}); @override State<BudgetPage> createState() => _BudgetPageState(); }
+class _BudgetPageState extends State<BudgetPage> {
+  late FinanceStore store; final c = TextEditingController();
+  @override void initState() { super.initState(); store = widget.store; c.text = store.budget > 0 ? store.budget.toStringAsFixed(2) : ''; }
+  @override Widget build(BuildContext context) { final remaining = store.budget - store.expense; return Scaffold(appBar: AppBar(title: const Text('Budget')), body: ListView(padding: const EdgeInsets.all(20), children: [const Text('Budget mensile', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)), const SizedBox(height: 15), TextField(controller: c, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Limite di spesa', prefixText: '€ ', border: OutlineInputBorder())), const SizedBox(height: 15), FilledButton.icon(onPressed: () async { final v = double.tryParse(c.text.replaceAll(',', '.')) ?? 0; store.budget = v; await store.save(); if (mounted) setState(() {}); }, icon: const Icon(Icons.save), label: const Text('Salva budget')), if (store.budget > 0) ...[const SizedBox(height: 25), Card(child: ListTile(title: const Text('Disponibile'), subtitle: Text(remaining >= 0 ? 'Ancora disponibile questo mese' : 'Budget superato'), trailing: Text('€ ${remaining.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.w800))))]]); }
+}
+
+class BackupPage extends StatefulWidget { final FinanceStore store; const BackupPage({super.key, required this.store}); @override State<BackupPage> createState() => _BackupPageState(); }
+class _BackupPageState extends State<BackupPage> {
+  late FinanceStore store;
+  @override void initState() { super.initState(); store = widget.store; }
+  String exportData() => jsonEncode({'movements': store.movements.map((m) => m.toJson()).toList(), 'categories': store.categories, 'accounts': store.accounts, 'budget': store.budget});
+  Future<void> importData() async { final c = TextEditingController(); final raw = await showDialog<String>(context: context, builder: (ctx) => AlertDialog(title: const Text('Ripristina backup'), content: TextField(controller: c, maxLines: 8, decoration: const InputDecoration(hintText: 'Incolla qui il backup JSON')), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annulla')), FilledButton(onPressed: () => Navigator.pop(ctx, c.text.trim()), child: const Text('Ripristina'))])); if (raw == null || raw.isEmpty) return; try { final j = jsonDecode(raw) as Map<String,dynamic>; store.movements..clear()..addAll((j['movements'] as List).map((e) => Movement.fromJson(Map<String,dynamic>.from(e)))); store.categories..clear()..addAll(List<String>.from(j['categories'] ?? store.categories)); store.accounts..clear()..addAll(List<String>.from(j['accounts'] ?? store.accounts)); store.budget = (j['budget'] as num?)?.toDouble() ?? 0; await store.save(); if (mounted) { setState(() {}); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Backup ripristinato'))); } } catch (_) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Backup non valido'))); } }
+  @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('Backup e ripristino')), body: ListView(padding: const EdgeInsets.all(20), children: [const Text('Backup dati', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)), const SizedBox(height: 10), const Text('Puoi copiare il backup e conservarlo. Per ripristinarlo, incolla il testo generato.'), const SizedBox(height: 20), FilledButton.icon(onPressed: () async { await showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('Backup'), content: SelectableText(exportData()), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Chiudi'))])); }, icon: const Icon(Icons.copy), label: const Text('Esporta backup')), const SizedBox(height: 12), OutlinedButton.icon(onPressed: importData, icon: const Icon(Icons.restore), label: const Text('Ripristina backup'))]));
 }
 
 class CategoryPage extends StatefulWidget {
   final FinanceStore store;
   const CategoryPage({super.key, required this.store});
-
-  @override
-  State<CategoryPage> createState()=>_CategoryPageState();
+  @override State<CategoryPage> createState()=>_CategoryPageState();
 }
 
 class _CategoryPageState extends State<CategoryPage> {
   String? selected;
-
   Future<void> _addCategory() async {
     final controller=TextEditingController();
-    final value=await showDialog<String>(
-      context:context,
-      builder:(ctx)=>AlertDialog(
-        title:const Text('Nuova categoria'),
-        content:TextField(controller:controller,autofocus:true,decoration:const InputDecoration(labelText:'Nome categoria')),
-        actions:[
-          TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Annulla')),
-          FilledButton(onPressed:()=>Navigator.pop(ctx,controller.text.trim()),child:const Text('Aggiungi')),
-        ],
-      ),
-    );
-    if(value!=null && value.isNotEmpty && !widget.store.categories.contains(value)){
-      setState(()=>widget.store.categories.add(value));
-    }
+    final value=await showDialog<String>(context:context,builder:(ctx)=>AlertDialog(title:const Text('Nuova categoria'),content:TextField(controller:controller,autofocus:true,decoration:const InputDecoration(labelText:'Nome categoria')),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Annulla')),FilledButton(onPressed:()=>Navigator.pop(ctx,controller.text.trim()),child:const Text('Aggiungi'))]));
+    if(value!=null&&value.isNotEmpty&&!widget.store.categories.contains(value)){setState(()=>widget.store.categories.add(value));await widget.store.save();}
   }
-
-  @override
-  Widget build(BuildContext context)=>Scaffold(
-    appBar:AppBar(title:const Text('Categorie')),
-    floatingActionButton:FloatingActionButton.extended(
-      onPressed:_addCategory,
-      icon:const Icon(Icons.add),
-      label:const Text('Nuova categoria'),
-    ),
-    body:ListView.builder(
-      padding:const EdgeInsets.fromLTRB(16,12,16,100),
-      itemCount:widget.store.categories.length,
-      itemBuilder:(context,index){
-        final category=widget.store.categories[index];
-        final isSelected=selected==category;
-        return Card(
-          margin:const EdgeInsets.only(bottom:8),
-          child:ListTile(
-            leading:Icon(isSelected?Icons.check_circle:Icons.category_outlined),
-            title:Text(category),
-            trailing:isSelected?const Text('Selezionata'):const Icon(Icons.chevron_right),
-            selected:isSelected,
-            onTap:()=>setState(()=>selected=category),
-          ),
-        );
-      },
-    ),
-  );
+  @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:const Text('Categorie')),floatingActionButton:FloatingActionButton.extended(onPressed:_addCategory,icon:const Icon(Icons.add),label:const Text('Nuova categoria')),body:ListView.builder(padding:const EdgeInsets.fromLTRB(16,12,16,100),itemCount:widget.store.categories.length,itemBuilder:(context,index){final category=widget.store.categories[index];final isSelected=selected==category;return Card(margin:const EdgeInsets.only(bottom:8),child:ListTile(leading:Icon(isSelected?Icons.check_circle:Icons.category_outlined),title:Text(category),trailing:isSelected?const Text('Selezionata'):const Icon(Icons.chevron_right),selected:isSelected,onTap:()=>setState(()=>selected=category)));}));
 }
 
 Future<void> showAddMovement(BuildContext context, FinanceStore store,{bool? income}) async {

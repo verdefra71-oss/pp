@@ -1,6 +1,9 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:share_plus/share_plus.dart';
 
 String dataIt(DateTime d) =>
     '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
@@ -58,36 +61,96 @@ class GestioneFamiliareApp extends StatefulWidget {
 
 class _AppState extends State<GestioneFamiliareApp> {
   List<Movimento> movimenti = [];
+  bool _caricato = false;
 
-  @override void initState() { super.initState(); _carica(); }
+  @override
+  void initState() {
+    super.initState();
+    _carica();
+  }
 
   Future<void> _carica() async {
-    final p = await SharedPreferences.getInstance();
-    final raw = p.getString('movimenti') ?? '[]';
-    setState(() => movimenti = (jsonDecode(raw) as List)
-      .map((e) => Movimento.fromJson(e)).toList());
+    try {
+      final p = await SharedPreferences.getInstance();
+      final raw = p.getString('movimenti') ?? '[]';
+      final decoded = jsonDecode(raw) as List<dynamic>;
+      final caricati = decoded
+          .map((e) => Movimento.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+      if (!mounted) return;
+      setState(() {
+        movimenti = caricati;
+        _caricato = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _caricato = true);
+    }
   }
 
   Future<void> _salva() async {
     final p = await SharedPreferences.getInstance();
-    await p.setString('movimenti', jsonEncode(movimenti.map((e) => e.toJson()).toList()));
+    await p.setString(
+      'movimenti',
+      jsonEncode(movimenti.map((e) => e.toJson()).toList()),
+    );
   }
 
-  void _aggiungi(Movimento m) {
+  Future<void> _aggiungi(Movimento m) async {
     setState(() => movimenti.add(m));
-    _salva();
+    await _salva();
   }
 
-  void _elimina(String id) {
+  Future<void> _elimina(String id) async {
     setState(() => movimenti.removeWhere((m) => m.id == id));
-    _salva();
+    await _salva();
   }
 
-  void _modifica(Movimento nuovo) {
+  Future<void> _modifica(Movimento nuovo) async {
     final i = movimenti.indexWhere((m) => m.id == nuovo.id);
     if (i >= 0) {
       setState(() => movimenti[i] = nuovo);
-      _salva();
+      await _salva();
+    }
+  }
+
+  Future<void> _esporta() async {
+    final dati = jsonEncode({
+      'app': 'Gestione Familiare',
+      'versione': 1,
+      'movimenti': movimenti.map((e) => e.toJson()).toList(),
+    });
+    final nome = 'gestione_familiare_backup_${DateTime.now().year}${DateTime.now().month.toString().padLeft(2, '0')}${DateTime.now().day.toString().padLeft(2, '0')}.json';
+    await Share.shareXFiles(
+      [XFile.fromData(Uint8List.fromList(utf8.encode(dati)), name: nome, mimeType: 'application/json')],
+      text: 'Backup dati Gestione Familiare',
+    );
+  }
+
+  Future<void> _importa() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['json'],
+      withData: true,
+    );
+    if (result == null || result.files.single.bytes == null) return;
+    try {
+      final testo = utf8.decode(result.files.single.bytes!);
+      final dati = jsonDecode(testo) as Map<String, dynamic>;
+      final lista = (dati['movimenti'] as List<dynamic>? ?? [])
+          .map((e) => Movimento.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+      setState(() => movimenti = lista);
+      await _salva();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Importati ${lista.length} movimenti.')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('File di backup non valido.')),
+      );
     }
   }
 
@@ -102,7 +165,16 @@ class _AppState extends State<GestioneFamiliareApp> {
         appBarTheme: const AppBarTheme(centerTitle: false),
         cardTheme: const CardThemeData(margin: EdgeInsets.symmetric(horizontal: 16, vertical: 6)),
       ),
-      home: HomePage(movimenti: movimenti, onAdd: _aggiungi, onDelete: _elimina, onEdit: _modifica),
+      home: !_caricato
+          ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+          : HomePage(
+              movimenti: movimenti,
+              onAdd: _aggiungi,
+              onDelete: _elimina,
+              onEdit: _modifica,
+              onExport: _esporta,
+              onImport: _importa,
+            ),
     );
   }
 }
@@ -112,7 +184,9 @@ class HomePage extends StatefulWidget {
   final void Function(Movimento) onAdd;
   final void Function(String) onDelete;
   final void Function(Movimento) onEdit;
-  const HomePage({super.key, required this.movimenti, required this.onAdd, required this.onDelete, required this.onEdit});
+  final Future<void> Function() onExport;
+  final Future<void> Function() onImport;
+  const HomePage({super.key, required this.movimenti, required this.onAdd, required this.onDelete, required this.onEdit, required this.onExport, required this.onImport});
   @override State<HomePage> createState() => _HomePageState();
 }
 
@@ -148,6 +222,17 @@ class _HomePageState extends State<HomePage> {
     final banca = totale(true,'Banca') - totale(false,'Banca');
     return Scaffold(
       appBar: AppBar(title: const Text('Gestione Familiare'), actions: [
+        PopupMenuButton<String>(
+          tooltip: 'Dati',
+          onSelected: (v) {
+            if (v == 'export') widget.onExport();
+            if (v == 'import') widget.onImport();
+          },
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: 'export', child: Text('Esporta dati')),
+            PopupMenuItem(value: 'import', child: Text('Importa dati')),
+          ],
+        ),
         IconButton(onPressed: () async {
           final m = await showDatePicker(context: context, initialDate: mese,
             firstDate: DateTime(2020), lastDate: DateTime(2100));

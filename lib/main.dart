@@ -129,7 +129,7 @@ class _HomePageState extends State<HomePage> {
 
   double get saldo => delMese.fold(0, (s,m) => s + (m.entrata ? m.importo : -m.importo));
 
-  String euro(double n) => NumberFormat.currency(locale:'it_IT', symbol:'€', decimalDigits:2).format(n);
+  String euro(double n) => '${n.toStringAsFixed(2).replaceAll('.', ',')} €';
 
   Future<void> _nuovo({bool entrata = true}) async {
     final m = await Navigator.push<Movimento>(context, MaterialPageRoute(

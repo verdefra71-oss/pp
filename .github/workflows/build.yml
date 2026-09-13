@@ -8,25 +8,35 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout
+      - name: Scarica progetto
         uses: actions/checkout@v4
 
-      - name: Setup Flutter
+      - name: Installa Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: "3.35.3"
           channel: stable
           cache: true
 
-      - name: Flutter pub get
+      # Genera automaticamente la struttura Android ufficiale Flutter.
+      # In questo modo non dobbiamo mantenere manualmente Gradle.
+      - name: Crea struttura Android Flutter
+        run: flutter create --platforms=android --project-name gestione_familiare .
+
+      - name: Installa dipendenze
         run: flutter pub get
 
-      - name: Build APK
+      - name: Controlla progetto
+        run: flutter analyze --no-fatal-infos
+
+      - name: Compila APK
         run: flutter build apk --release
 
-      - name: Upload APK
+      - name: Pubblica APK
         uses: actions/upload-artifact@v4
         with:
           name: gestione-familiare-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error

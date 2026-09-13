@@ -1,7 +1,18 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+String dataIt(DateTime d) =>
+    '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+
+String meseIt(DateTime d) {
+  const mesi = [
+    'GENNAIO', 'FEBBRAIO', 'MARZO', 'APRILE', 'MAGGIO', 'GIUGNO',
+    'LUGLIO', 'AGOSTO', 'SETTEMBRE', 'OTTOBRE', 'NOVEMBRE', 'DICEMBRE'
+  ];
+  return '${mesi[d.month - 1]} ${d.year}';
+}
+
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -148,7 +159,7 @@ class _HomePageState extends State<HomePage> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             IconButton(onPressed: () => setState(() => mese=DateTime(mese.year,mese.month-1)), icon: const Icon(Icons.chevron_left)),
-            Text(DateFormat('MMMM yyyy','it_IT').format(mese).toUpperCase(),
+            Text(meseIt(mese),
               style: const TextStyle(fontSize:18,fontWeight:FontWeight.w600)),
             IconButton(onPressed: () => setState(() => mese=DateTime(mese.year,mese.month+1)), icon: const Icon(Icons.chevron_right)),
           ],
@@ -183,7 +194,7 @@ class _HomePageState extends State<HomePage> {
               child: Card(child: ListTile(onTap:()=>_edit(m),
                 leading:CircleAvatar(child:Icon(m.entrata?Icons.arrow_downward:Icons.arrow_upward)),
                 title:Text(m.categoria,style:const TextStyle(fontWeight:FontWeight.w600)),
-                subtitle:Text('${DateFormat('dd/MM/yyyy').format(m.data)} • ${m.metodo}${m.descrizione.isEmpty?'':' • ${m.descrizione}'}'),
+                subtitle:Text('${dataIt(m.data)} • ${m.metodo}${m.descrizione.isEmpty?'':' • ${m.descrizione}'}'),
                 trailing:Text('${m.entrata?'+':'-'} ${euro(m.importo)}',style:TextStyle(fontWeight:FontWeight.bold,color:m.entrata?Colors.green.shade700:Colors.red.shade700)),
               )));
           }))
@@ -252,8 +263,9 @@ class _MovimentoPageState extends State<MovimentoPage>{
           ButtonSegment(value:true,label:Text('Entrata'),icon:Icon(Icons.add)),
           ButtonSegment(value:false,label:Text('Uscita'),icon:Icon(Icons.remove))],
           selected:{entrata},onSelectionChanged:(s)=>setState(() { entrata=s.first; categoria=(s.first?entrate:uscite).first; }),
+        ),
         const SizedBox(height:18),
-        ListTile(contentPadding:EdgeInsets.zero,title:const Text('Data'),subtitle:Text(DateFormat('dd/MM/yyyy').format(data)),
+        ListTile(contentPadding:EdgeInsets.zero,title:const Text('Data'),subtitle:Text(dataIt(data)),
           trailing:IconButton(onPressed:_data,icon:const Icon(Icons.calendar_today))),
         DropdownButtonFormField<String>(initialValue:categoria,decoration:const InputDecoration(labelText:'Categoria',border:OutlineInputBorder()),
           items:(entrata?entrate:uscite).map((e)=>DropdownMenuItem(value:e,child:Text(e))).toList(),

@@ -1,14 +1,18 @@
 # Gestione Familiare
 
-App Flutter semplice per gestire entrate, uscite, contanti, banca e saldo mensile.
+Progetto Flutter semplice per la gestione delle finanze familiari.
 
-## Categorie
-Entrate: Stipendio, Banca, Extra.
-
-Uscite: Acqua, Luce, Gas, Internet, Benzina, Bollo auto, Assicurazione, Condominio, Altre.
+## Funzioni
+- Entrate: Stipendio, Banca, Extra
+- Uscite: Acqua, Luce, Gas, Internet, Benzina, Bollo auto, Assicurazione, Condominio, Altre
+- Contanti e Banca separati
+- Saldo mensile
+- Storico, modifica ed eliminazione movimenti
+- Salvataggio locale
+- Nessun grafico
+- Nessuna notifica
 
 ## GitHub
-Il workflow in `.github/workflows/build.yml` compila automaticamente l'APK a ogni push.
+Il workflow `.github/workflows/build.yml` genera automaticamente la struttura Android/Gradle compatibile con Flutter e poi compila l'APK.
 
-## Locale
-I dati vengono salvati sul dispositivo.
+Non è necessario caricare manualmente le cartelle `android`.

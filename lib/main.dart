@@ -86,7 +86,7 @@ class _AppState extends State<GestioneFamiliareApp> {
       title: 'Gestione Familiare',
       theme: ThemeData(
         useMaterial3: true,
-        colorSchemeSeed: Colors.indigoGrey,
+        colorSchemeSeed: Colors.indigo,
         scaffoldBackgroundColor: const Color(0xfff7f7f7),
         appBarTheme: const AppBarTheme(centerTitle: false),
         cardTheme: const CardThemeData(margin: EdgeInsets.symmetric(horizontal: 16, vertical: 6)),
@@ -245,7 +245,6 @@ class _MovimentoPageState extends State<MovimentoPage>{
   }
 
   @override Widget build(BuildContext context){
-    final categorie=entrata?entrate:uscite;
     return Scaffold(
       appBar:AppBar(title:Text(widget.movimento==null?(entrata?'Nuova entrata':'Nuova uscita'):'Modifica movimento')),
       body:ListView(padding:const EdgeInsets.all(18),children:[
@@ -256,11 +255,11 @@ class _MovimentoPageState extends State<MovimentoPage>{
         const SizedBox(height:18),
         ListTile(contentPadding:EdgeInsets.zero,title:const Text('Data'),subtitle:Text(DateFormat('dd/MM/yyyy').format(data)),
           trailing:IconButton(onPressed:_data,icon:const Icon(Icons.calendar_today))),
-        DropdownButtonFormField<String>(value:categoria,decoration:const InputDecoration(labelText:'Categoria',border:OutlineInputBorder()),
+        DropdownButtonFormField<String>(initialValue:categoria,decoration:const InputDecoration(labelText:'Categoria',border:OutlineInputBorder()),
           items:(entrata?entrate:uscite).map((e)=>DropdownMenuItem(value:e,child:Text(e))).toList(),
           onChanged:(v){if(v!=null)setState(()=>categoria=v);}),
         const SizedBox(height:14),
-        DropdownButtonFormField<String>(value:metodo,decoration:const InputDecoration(labelText:'Metodo',border:OutlineInputBorder()),
+        DropdownButtonFormField<String>(initialValue:metodo,decoration:const InputDecoration(labelText:'Metodo',border:OutlineInputBorder()),
           items:['Contanti','Banca'].map((e)=>DropdownMenuItem(value:e,child:Text(e))).toList(),
           onChanged:(v){if(v!=null)setState(()=>metodo=v);}),
         const SizedBox(height:14),

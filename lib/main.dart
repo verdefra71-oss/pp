@@ -251,7 +251,7 @@ class _MovimentoPageState extends State<MovimentoPage>{
         SegmentedButton<bool>(segments:const[
           ButtonSegment(value:true,label:Text('Entrata'),icon:Icon(Icons.add)),
           ButtonSegment(value:false,label:Text('Uscita'),icon:Icon(Icons.remove))],
-          selected:{entrata},onSelectionChanged:(s)=>setState(()=>{entrata=s.first,categoria=(s.first?entrate:uscite).first})),
+          selected:{entrata},onSelectionChanged:(s)=>setState(() { entrata=s.first; categoria=(s.first?entrate:uscite).first; }),
         const SizedBox(height:18),
         ListTile(contentPadding:EdgeInsets.zero,title:const Text('Data'),subtitle:Text(DateFormat('dd/MM/yyyy').format(data)),
           trailing:IconButton(onPressed:_data,icon:const Icon(Icons.calendar_today))),
